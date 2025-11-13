@@ -271,11 +271,6 @@ export const listSurveys = async (req, res) => {
 // ✅ Get survey + its questions (by _id or surveyCode)
 export const getSurveyWithQuestions = async (req, res) => {
   try {
-    const adminId = req.user?.sub;
-    if (!adminId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
     const { surveyIdOrCode } = req.params;
 
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
@@ -290,7 +285,7 @@ export const getSurveyWithQuestions = async (req, res) => {
       .sort({ order: 1, createdAt: 1 })
       .lean();
 
-    // ✅ yahan bhi questions ko clean kar ke bhejenge
+    // ✅ Cleaned question format
     const questions = rawQuestions.map((q) => {
       const base = {
         id: q._id,
