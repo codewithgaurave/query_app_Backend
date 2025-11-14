@@ -1,11 +1,11 @@
 // routes/dashboardRoutes.js
 import express from "express";
 import { getAdminDashboardOverview } from "../controllers/dashboardController.js";
-import { verifyAdminJwt } from "../middleware/authMiddleware.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
 // GET /api/admin/dashboard/overview
-router.get("/overview", verifyAdminJwt, getAdminDashboardOverview);
+router.get("/overview", requireAuth, getAdminDashboardOverview);
 
 export default router;
