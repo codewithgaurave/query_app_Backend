@@ -21,7 +21,7 @@ const ensureAdmin = async (req) => {
   return { ok: true, admin };
 };
 
-// ✅ Helper: today ka start/end (calendar day based)
+// ✅ Helper: today ka start/end (calendar day based, server timezone)
 const getTodayRange = () => {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -41,21 +41,26 @@ const getFromDate = (days = 30) => {
   return d;
 };
 
-// ✅ 1) Dashboard overview (cards / tiles)
-//    - Total users, active users, SURVEY_USER count, QUALITY_ENGINEER count
-//    - Total surveys, active surveys, draft/closed
-//    - Total survey responses
-//    - Total punch-ins
-//    - Aaj ke punch-ins & aaj ke responses
-export const getDashboardOverview = async (req, res) => {
+// ✅ SINGLE endpoint: /admin/dashboard/overview
+//  - summary (users, surveys, punchIns, responses)
+//  - trends (daily punch-ins, daily responses for range)
+//  - surveyPerformance (per survey responses + lastResponseAt)
+//  - surveyUserActivity (per SURVEY_USER activity)
+export const getAdminDashboardOverview = async (req, res) => {
   try {
     const auth = await ensureAdmin(req);
     if (!auth.ok) {
       return res.status(auth.status).json({ message: auth.message });
     }
 
-    const { startOfDay, endOfDay } = getTodayRange();
+    const { range = "30d" } = req.query;
+    const rangeMap = { "7d": 7, "30d": 30, "90d": 90, "180d": 180 };
+    const days = rangeMap[range] || 30;
 
+    const { startOfDay, endOfDay } = getTodayRange();
+    const fromDate = getFromDate(days);
+
+    // ---- BASIC COUNTS ----
     const [
       totalUsers,
       activeUsers,
@@ -69,6 +74,12 @@ export const getDashboardOverview = async (req, res) => {
       totalPunchIns,
       todayPunchIns,
       todayResponses,
+      surveyStatusAgg,
+      punchSeriesAgg,
+      responseSeriesAgg,
+      surveyResponseAgg,
+      responseAggByUser,
+      punchAggByUser,
     ] = await Promise.all([
       User.countDocuments({}),
       User.countDocuments({ isActive: true }),
@@ -86,166 +97,109 @@ export const getDashboardOverview = async (req, res) => {
       SurveyResponse.countDocuments({
         createdAt: { $gte: startOfDay, $lt: endOfDay },
       }),
-    ]);
 
-    return res.json({
-      users: {
-        total: totalUsers,
-        active: activeUsers,
-        inactive: totalUsers - activeUsers,
-        surveyUsers,
-        qualityEngineers,
-      },
-      surveys: {
-        total: totalSurveys,
-        active: activeSurveys,
-        draft: draftSurveys,
-        closed: closedSurveys,
-      },
-      responses: {
-        total: totalResponses,
-        today: todayResponses,
-      },
-      punchIns: {
-        total: totalPunchIns,
-        today: todayPunchIns,
-      },
-    });
-  } catch (err) {
-    console.error("getDashboardOverview error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-// ✅ 2) Punch-in time series (graph ke liye)
-//    /dashboard/punchins/timeseries?days=30
-//    returns: [{ date: "2025-01-01", count: 10 }, ...]
-export const getPunchInTimeSeries = async (req, res) => {
-  try {
-    const auth = await ensureAdmin(req);
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message });
-    }
-
-    const days = Number(req.query.days || 30);
-    const fromDate = getFromDate(days);
-
-    const data = await PunchIn.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: fromDate },
-        },
-      },
-      {
-        $group: {
-          _id: {
-            $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+      // survey status breakdown
+      Survey.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
           },
-          count: { $sum: 1 },
         },
-      },
-      { $sort: { _id: 1 } },
+      ]),
+
+      // punch-in daily series
+      PunchIn.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: fromDate },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // responses daily series
+      SurveyResponse.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: fromDate },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // survey wise performance
+      SurveyResponse.aggregate([
+        {
+          $group: {
+            _id: "$survey",
+            totalResponses: { $sum: 1 },
+            lastResponseAt: { $max: "$createdAt" },
+          },
+        },
+      ]),
+
+      // responses grouped by user
+      SurveyResponse.aggregate([
+        {
+          $group: {
+            _id: "$userCode",
+            totalResponses: { $sum: 1 },
+            uniqueSurveys: { $addToSet: "$survey" },
+            lastResponseAt: { $max: "$createdAt" },
+          },
+        },
+      ]),
+
+      // punch-ins grouped by user
+      PunchIn.aggregate([
+        {
+          $group: {
+            _id: "$userCode",
+            totalPunchIns: { $sum: 1 },
+            lastPunchAt: { $max: "$createdAt" },
+          },
+        },
+      ]),
     ]);
 
-    const series = data.map((d) => ({
-      date: d._id,
-      count: d.count,
+    // ---- SURVEY STATUS BREAKDOWN ----
+    const surveyStatusBreakdown = surveyStatusAgg.map((s) => ({
+      status: s._id || "UNKNOWN",
+      count: s.count,
     }));
 
-    return res.json({ fromDate, days, series });
-  } catch (err) {
-    console.error("getPunchInTimeSeries error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-// ✅ 3) Survey response time series (overall or specific survey)
-//    /dashboard/responses/timeseries?days=30
-//    /dashboard/responses/timeseries?days=30&surveyIdOrCode=SRV-XXXX
-export const getSurveyResponseTimeSeries = async (req, res) => {
-  try {
-    const auth = await ensureAdmin(req);
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message });
-    }
-
-    const days = Number(req.query.days || 30);
-    const fromDate = getFromDate(days);
-    const { surveyIdOrCode } = req.query;
-
-    const match = {
-      createdAt: { $gte: fromDate },
+    // ---- TRENDS ----
+    const trends = {
+      punchInsDaily: punchSeriesAgg.map((d) => ({
+        date: d._id,
+        count: d.count,
+      })),
+      responsesDaily: responseSeriesAgg.map((d) => ({
+        date: d._id,
+        count: d.count,
+      })),
     };
 
-    // optional survey filter
-    if (surveyIdOrCode) {
-      if (mongoose.Types.ObjectId.isValid(surveyIdOrCode)) {
-        match.survey = new mongoose.Types.ObjectId(surveyIdOrCode);
-      } else {
-        // lookup by surveyCode -> get _id list first
-        const survey = await Survey.findOne(
-          { surveyCode: surveyIdOrCode },
-          { _id: 1 }
-        ).lean();
-        if (!survey) {
-          return res.status(404).json({ message: "Survey not found." });
-        }
-        match.survey = survey._id;
-      }
-    }
-
-    const data = await SurveyResponse.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: {
-            $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
-          },
-          count: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
-
-    const series = data.map((d) => ({
-      date: d._id,
-      count: d.count,
-    }));
-
-    return res.json({
-      fromDate,
-      days,
-      filter: { surveyIdOrCode: surveyIdOrCode || null },
-      series,
-    });
-  } catch (err) {
-    console.error("getSurveyResponseTimeSeries error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-// ✅ 4) Survey-wise performance summary
-//    - Har survey ka totalResponses, lastResponseAt
-//    - Frontend isko table + bar chart dono me dikha sakta hai
-export const getSurveyPerformance = async (req, res) => {
-  try {
-    const auth = await ensureAdmin(req);
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message });
-    }
-
-    const agg = await SurveyResponse.aggregate([
-      {
-        $group: {
-          _id: "$survey",
-          totalResponses: { $sum: 1 },
-          lastResponseAt: { $max: "$createdAt" },
-        },
-      },
-    ]);
-
-    const surveyIds = agg.map((a) => a._id);
-    const surveys = await Survey.find(
+    // ---- SURVEY PERFORMANCE DETAILS ----
+    const surveyIds = surveyResponseAgg.map((a) => a._id);
+    const surveyDocs = await Survey.find(
       { _id: { $in: surveyIds } },
       {
         name: 1,
@@ -257,10 +211,10 @@ export const getSurveyPerformance = async (req, res) => {
     ).lean();
 
     const surveyMap = new Map(
-      surveys.map((s) => [String(s._id), s])
+      surveyDocs.map((s) => [String(s._id), s])
     );
 
-    const result = agg
+    const surveyPerformance = surveyResponseAgg
       .map((a) => {
         const s = surveyMap.get(String(a._id));
         if (!s) return null;
@@ -278,52 +232,13 @@ export const getSurveyPerformance = async (req, res) => {
       .filter(Boolean)
       .sort((a, b) => b.totalResponses - a.totalResponses);
 
-    return res.json({ surveys: result });
-  } catch (err) {
-    console.error("getSurveyPerformance error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-// ✅ 5) SURVEY_USER activity summary
-//    - Har SURVEY_USER ke liye: kitne surveys ka response, total responses, total punch-ins, lastActiveAt
-//    - Dashboard me "Top Active Surveyors" type ka graph/showcase
-export const getSurveyUserActivity = async (req, res) => {
-  try {
-    const auth = await ensureAdmin(req);
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message });
-    }
-
-    // responses grouped by userCode
-    const responseAgg = await SurveyResponse.aggregate([
-      {
-        $group: {
-          _id: "$userCode",
-          totalResponses: { $sum: 1 },
-          uniqueSurveys: { $addToSet: "$survey" },
-          lastResponseAt: { $max: "$createdAt" },
-        },
-      },
-    ]);
-
-    // punch-ins grouped by userCode
-    const punchAgg = await PunchIn.aggregate([
-      {
-        $group: {
-          _id: "$userCode",
-          totalPunchIns: { $sum: 1 },
-          lastPunchAt: { $max: "$createdAt" },
-        },
-      },
-    ]);
-
+    // ---- USER ACTIVITY ----
     const userCodesSet = new Set();
-    responseAgg.forEach((r) => userCodesSet.add(r._id));
-    punchAgg.forEach((p) => userCodesSet.add(p._id));
+    responseAggByUser.forEach((r) => userCodesSet.add(r._id));
+    punchAggByUser.forEach((p) => userCodesSet.add(p._id));
     const userCodes = Array.from(userCodesSet);
 
-    const users = await User.find(
+    const userDocs = await User.find(
       { userCode: { $in: userCodes } },
       {
         userCode: 1,
@@ -335,11 +250,10 @@ export const getSurveyUserActivity = async (req, res) => {
       }
     ).lean();
 
-    const userMap = new Map(users.map((u) => [u.userCode, u]));
+    const userMap = new Map(userDocs.map((u) => [u.userCode, u]));
+    const punchMap = new Map(punchAggByUser.map((p) => [p._id, p]));
 
-    const punchMap = new Map(punchAgg.map((p) => [p._id, p]));
-
-    const result = responseAgg
+    const surveyUserActivity = responseAggByUser
       .map((r) => {
         const u = userMap.get(r._id);
         if (!u) return null;
@@ -372,9 +286,40 @@ export const getSurveyUserActivity = async (req, res) => {
       .filter(Boolean)
       .sort((a, b) => b.totalResponses - a.totalResponses);
 
-    return res.json({ users: result });
+    // ---- FINAL RESPONSE ----
+    return res.json({
+      range,
+      days,
+      summary: {
+        users: {
+          total: totalUsers,
+          active: activeUsers,
+          inactive: totalUsers - activeUsers,
+          surveyUsers,
+          qualityEngineers,
+        },
+        surveys: {
+          total: totalSurveys,
+          active: activeSurveys,
+          draft: draftSurveys,
+          closed: closedSurveys,
+          statusBreakdown: surveyStatusBreakdown,
+        },
+        responses: {
+          total: totalResponses,
+          today: todayResponses,
+        },
+        punchIns: {
+          total: totalPunchIns,
+          today: todayPunchIns,
+        },
+      },
+      trends,
+      surveyPerformance,
+      surveyUserActivity,
+    });
   } catch (err) {
-    console.error("getSurveyUserActivity error:", err);
+    console.error("getAdminDashboardOverview error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

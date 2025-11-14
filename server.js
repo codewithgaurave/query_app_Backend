@@ -11,7 +11,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import punchInRoutes from "./routes/punchInRoutes.js";
 import surveyRoutes from "./routes/surveyRoutes.js";
-import dashboardRoutes from "./routes/dashboardRoutes.js";  // ✅ NEW
+import dashboardRoutes from "./routes/dashboardRoutes.js"; // ✅ NEW
 
 const app = express();
 
@@ -46,7 +46,9 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/punchin", punchInRoutes);
 app.use("/api/survey", surveyRoutes);
-app.use("/api/dashboard", dashboardRoutes);  // ✅ NEW: Dashboard APIs
+
+// ✅ Dashboard routes: final path = /api/admin/dashboard/overview
+app.use("/api/admin/dashboard", dashboardRoutes);
 
 app.get("/", (_req, res) => res.send("✅ API is running..."));
 app.get("/health", (_req, res) =>
