@@ -5,6 +5,7 @@ import {
   addSurveyQuestion,
   listSurveys,
   getSurveyWithQuestions,
+  listPublicSurveys,          // ✅ NEW
 } from "../controllers/surveyController.js";
 import {
   submitSurveyResponse,
@@ -24,6 +25,10 @@ const requireAdminOnly = (req, res, next) => {
   next();
 };
 
+// ✅ PUBLIC: list surveys for SURVEY_USER app (no token)
+// default: sirf ACTIVE surveys
+router.get("/public/list", listPublicSurveys);
+
 // ✅ Create survey (Admin)
 router.post("/create", requireAuth, requireAdminOnly, createSurvey);
 
@@ -38,7 +43,8 @@ router.post(
 // ✅ List surveys (Admin)
 router.get("/list", requireAuth, requireAdminOnly, listSurveys);
 
-// ✅ Get survey + questions (currently open – SURVEY_USER bhi use kar sakta hai)
+// ✅ Get survey + questions
+// SURVEY_USER app me: ?userCode=USR-XXXX bhejoge to punch-in check hoga
 router.get("/:surveyIdOrCode", getSurveyWithQuestions);
 
 // ✅ SURVEY_USER submit responses + audio (userCode based, no token)
@@ -56,8 +62,7 @@ router.get(
   listSurveyResponses
 );
 
-// ✅ NEW: kis user ne kaun-kaun se surveys ka answer de diya (userCode se)
-// yeh SURVEY_USER app me bhi use kar sakte ho, isliye abhi bina token rakha hai
+// ✅ kis user ne kaun-kaun se surveys ka answer de diya (userCode se)
 router.get("/responses/user/:userCode", listUserSurveySummary);
 
 export default router;

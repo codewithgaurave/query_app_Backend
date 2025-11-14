@@ -3,10 +3,24 @@ import crypto from "crypto";
 import mongoose from "mongoose";
 import Survey from "../models/Survey.js";
 import SurveyQuestion from "../models/SurveyQuestion.js";
+import PunchIn from "../models/PunchIn.js";     // ✅ NEW
+import User from "../models/User.js";           // ✅ NEW
 
 // helper: random surveyCode
 const generateSurveyCode = () =>
   "SRV-" + crypto.randomBytes(4).toString("hex").toUpperCase();
+
+// ✅ helper: aaj ka startOfDay / endOfDay nikalne ke liye (calendar day based)
+const getTodayRange = () => {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfDay = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + 1
+  );
+  return { startOfDay, endOfDay };
+};
 
 // allowed question types
 const VALID_QUESTION_TYPES = [
@@ -268,11 +282,93 @@ export const listSurveys = async (req, res) => {
   }
 };
 
+// ✅ Public: list ACTIVE surveys for SURVEY_USER app (no auth)
+// ✅ Public: list surveys for SURVEY_USER app (no auth)
+export const listPublicSurveys = async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    const filter = {
+      isActive: true,      // sirf active flag wali
+    };
+
+    // Agar status diya hai tabhi filter karo
+    if (status) {
+      filter.status = status;   // DRAFT / ACTIVE / CLOSED jo bhi bhejo
+    }
+
+    const surveys = await Survey.find(
+      filter,
+      {
+        surveyCode: 1,
+        name: 1,
+        description: 1,
+        status: 1,
+        category: 1,
+        projectName: 1,
+        targetAudience: 1,
+        startDate: 1,
+        endDate: 1,
+        isAnonymousAllowed: 1,
+        maxResponses: 1,
+        language: 1,
+        tags: 1,
+        isActive: 1,
+        createdAt: 1,
+      }
+    )
+      .sort({ startDate: 1, createdAt: -1 })
+      .lean();
+
+    return res.json({ surveys });
+  } catch (err) {
+    console.error("listPublicSurveys error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+
 // ✅ Get survey + its questions (by _id or surveyCode)
+// 🔴 SURVEY_USER case me ?userCode=USR-XXXX pass kare aur yahan punch-in check hoga
 export const getSurveyWithQuestions = async (req, res) => {
   try {
     const { surveyIdOrCode } = req.params;
+    const { userCode } = req.query; // 🔴 NEW
 
+    // 🔴 Agar userCode aaya hai to SURVEY_USER + punch-in validate karo
+    if (userCode) {
+      // 1) Check valid active SURVEY_USER
+      const user = await User.findOne({
+        userCode,
+        role: "SURVEY_USER",
+        isActive: true,
+      }).lean();
+
+      if (!user) {
+        return res.status(404).json({
+          message: "Active SURVEY_USER not found for this userCode.",
+          code: "USER_NOT_FOUND",
+        });
+      }
+
+      // 2) Aaj ka punch-in check
+      const { startOfDay, endOfDay } = getTodayRange();
+
+      const todayPunch = await PunchIn.findOne({
+        userCode: user.userCode,
+        createdAt: { $gte: startOfDay, $lt: endOfDay },
+      }).lean();
+
+      if (!todayPunch) {
+        return res.status(403).json({
+          message:
+            "Please punch-in first for today before taking the survey.",
+          code: "PUNCH_IN_REQUIRED",
+        });
+      }
+    }
+
+    // ✅ Aage same purana survey + questions logic
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
     if (!survey) {
       return res.status(404).json({ message: "Survey not found" });
