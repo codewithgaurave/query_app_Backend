@@ -116,6 +116,113 @@ export const createSurvey = async (req, res) => {
   }
 };
 
+// ✅ Admin updates a survey (by _id or surveyCode)
+export const updateSurvey = async (req, res) => {
+  try {
+    const adminId = req.user?.sub;
+    if (!adminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { surveyIdOrCode } = req.params;
+    const {
+      name,
+      description,
+      category,
+      projectName,
+      targetAudience,
+      status,
+      startDate,
+      endDate,
+      isAnonymousAllowed,
+      maxResponses,
+      language,
+      tags,
+      allowedQuestionTypes,
+      isActive,
+    } = req.body;
+
+    const survey = await findSurveyByIdOrCode(surveyIdOrCode);
+    if (!survey) {
+      return res.status(404).json({ message: "Survey not found" });
+    }
+
+    const update = {};
+
+    if (typeof name === "string") update.name = name;
+    if (typeof description === "string") update.description = description;
+    if (typeof category === "string") update.category = category;
+    if (typeof projectName === "string") update.projectName = projectName;
+    if (typeof targetAudience === "string") update.targetAudience = targetAudience;
+    if (typeof status === "string") update.status = status;
+    if (startDate !== undefined) update.startDate = startDate;
+    if (endDate !== undefined) update.endDate = endDate;
+    if (typeof isAnonymousAllowed === "boolean")
+      update.isAnonymousAllowed = isAnonymousAllowed;
+    if (typeof maxResponses === "number") update.maxResponses = maxResponses;
+    if (typeof language === "string") update.language = language;
+    if (Array.isArray(tags)) update.tags = tags;
+    if (typeof isActive === "boolean") update.isActive = isActive;
+
+    // allowedQuestionTypes validate
+    if (Array.isArray(allowedQuestionTypes)) {
+      const filtered = allowedQuestionTypes.filter((t) =>
+        VALID_QUESTION_TYPES.includes(t)
+      );
+      if (!filtered.length && allowedQuestionTypes.length) {
+        return res
+          .status(400)
+          .json({ message: "Invalid allowedQuestionTypes" });
+      }
+      update.allowedQuestionTypes = filtered;
+    }
+
+    const updatedSurvey = await Survey.findByIdAndUpdate(
+      survey._id,
+      { $set: update },
+      { new: true }
+    ).lean();
+
+    return res.json({
+      message: "Survey updated successfully",
+      survey: updatedSurvey,
+    });
+  } catch (err) {
+    console.error("updateSurvey error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ✅ Admin deletes a survey (by _id or surveyCode) + its questions
+export const deleteSurvey = async (req, res) => {
+  try {
+    const adminId = req.user?.sub;
+    if (!adminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { surveyIdOrCode } = req.params;
+
+    const survey = await findSurveyByIdOrCode(surveyIdOrCode);
+    if (!survey) {
+      return res.status(404).json({ message: "Survey not found" });
+    }
+
+    // pehle saare questions delete karo
+    await SurveyQuestion.deleteMany({ survey: survey._id });
+
+    // phir survey delete karo
+    await Survey.findByIdAndDelete(survey._id);
+
+    return res.json({
+      message: "Survey and its questions deleted successfully",
+    });
+  } catch (err) {
+    console.error("deleteSurvey error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 // ✅ Admin adds a question to a survey (by _id or surveyCode)
 export const addSurveyQuestion = async (req, res) => {
   try {
@@ -248,6 +355,182 @@ export const addSurveyQuestion = async (req, res) => {
   }
 };
 
+// ✅ Admin updates a survey question
+export const updateSurveyQuestion = async (req, res) => {
+  try {
+    const adminId = req.user?.sub;
+    if (!adminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { questionId } = req.params;
+    const {
+      questionText,
+      type,
+      options,
+      allowMultiple,
+      minRating,
+      maxRating,
+      ratingStep,
+      required,
+      order,
+      helpText,
+      isActive,
+    } = req.body;
+
+    const question = await SurveyQuestion.findById(questionId);
+    if (!question) {
+      return res.status(404).json({ message: "Question not found." });
+    }
+
+    // agar type change kar rahe ho to validate karo
+    if (type) {
+      if (!VALID_QUESTION_TYPES.includes(type)) {
+        return res.status(400).json({ message: "Invalid question type." });
+      }
+
+      // survey ke allowedQuestionTypes check karo (agar set hai)
+      const survey = await Survey.findById(question.survey).lean();
+      if (
+        survey &&
+        Array.isArray(survey.allowedQuestionTypes) &&
+        survey.allowedQuestionTypes.length &&
+        !survey.allowedQuestionTypes.includes(type)
+      ) {
+        return res.status(400).json({
+          message: `This question type is not allowed for this survey. Allowed: ${survey.allowedQuestionTypes.join(
+            ", "
+          )}`,
+        });
+      }
+
+      question.type = type;
+    }
+
+    if (typeof questionText === "string") question.questionText = questionText;
+    if (typeof required === "boolean") question.required = required;
+    if (typeof order === "number") question.order = order;
+    if (typeof helpText === "string" || helpText === null) {
+      question.helpText = helpText;
+    }
+    if (typeof isActive === "boolean") question.isActive = isActive;
+
+    // type-specific handling
+    const finalType = question.type; // updated type (if changed above)
+
+    if (
+      ["MCQ_SINGLE", "CHECKBOX", "DROPDOWN", "LIKERT", "YES_NO"].includes(
+        finalType
+      )
+    ) {
+      if (options !== undefined) {
+        if (!Array.isArray(options) || !options.length) {
+          return res.status(400).json({
+            message: "options are required for this question type.",
+          });
+        }
+        question.options = options;
+      }
+    } else {
+      // non-option types ke liye options reset karna optional hai
+      // question.options = [];
+    }
+
+    if (finalType === "CHECKBOX") {
+      question.allowMultiple = true;
+    } else if (finalType === "MCQ_SINGLE") {
+      if (allowMultiple !== undefined) {
+        question.allowMultiple = !!allowMultiple;
+      } else {
+        question.allowMultiple = false;
+      }
+    } else {
+      question.allowMultiple = undefined;
+    }
+
+    if (finalType === "RATING") {
+      if (minRating !== undefined) question.minRating = Number(minRating) || 1;
+      if (maxRating !== undefined) question.maxRating = Number(maxRating) || 5;
+      if (ratingStep !== undefined)
+        question.ratingStep = Number(ratingStep) || 1;
+    } else {
+      question.minRating = undefined;
+      question.maxRating = undefined;
+      question.ratingStep = undefined;
+    }
+
+    await question.save();
+
+    const cleanQuestion = {
+      id: question._id,
+      survey: question.survey,
+      questionText: question.questionText,
+      type: question.type,
+      required: question.required,
+      order: question.order,
+      isActive: question.isActive,
+      createdAt: question.createdAt,
+      updatedAt: question.updatedAt,
+    };
+
+    if (
+      ["MCQ_SINGLE", "CHECKBOX", "DROPDOWN", "LIKERT", "YES_NO"].includes(
+        question.type
+      )
+    ) {
+      cleanQuestion.options = question.options;
+    }
+
+    if (["MCQ_SINGLE", "CHECKBOX"].includes(question.type)) {
+      cleanQuestion.allowMultiple = question.allowMultiple;
+    }
+
+    if (question.type === "RATING") {
+      cleanQuestion.minRating = question.minRating;
+      cleanQuestion.maxRating = question.maxRating;
+      cleanQuestion.ratingStep = question.ratingStep;
+    }
+
+    if (question.helpText) {
+      cleanQuestion.helpText = question.helpText;
+    }
+
+    return res.json({
+      message: "Question updated successfully",
+      question: cleanQuestion,
+    });
+  } catch (err) {
+    console.error("updateSurveyQuestion error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ✅ Admin deletes a survey question
+export const deleteSurveyQuestion = async (req, res) => {
+  try {
+    const adminId = req.user?.sub;
+    if (!adminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { questionId } = req.params;
+
+    const question = await SurveyQuestion.findById(questionId);
+    if (!question) {
+      return res.status(404).json({ message: "Question not found." });
+    }
+
+    await SurveyQuestion.findByIdAndDelete(questionId);
+
+    return res.json({
+      message: "Question deleted successfully",
+    });
+  } catch (err) {
+    console.error("deleteSurveyQuestion error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 // ✅ List all surveys (admin)
 export const listSurveys = async (req, res) => {
   try {
@@ -283,18 +566,17 @@ export const listSurveys = async (req, res) => {
 };
 
 // ✅ Public: list ACTIVE surveys for SURVEY_USER app (no auth)
-// ✅ Public: list surveys for SURVEY_USER app (no auth)
 export const listPublicSurveys = async (req, res) => {
   try {
     const { status } = req.query;
 
     const filter = {
-      isActive: true,      // sirf active flag wali
+      isActive: true, // sirf active flag wali
     };
 
     // Agar status diya hai tabhi filter karo
     if (status) {
-      filter.status = status;   // DRAFT / ACTIVE / CLOSED jo bhi bhejo
+      filter.status = status; // DRAFT / ACTIVE / CLOSED jo bhi bhejo
     }
 
     const surveys = await Survey.find(
@@ -326,7 +608,6 @@ export const listPublicSurveys = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
-
 
 // ✅ Get survey + its questions (by _id or surveyCode)
 // 🔴 SURVEY_USER case me ?userCode=USR-XXXX pass kare aur yahan punch-in check hoga

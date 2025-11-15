@@ -5,7 +5,11 @@ import {
   addSurveyQuestion,
   listSurveys,
   getSurveyWithQuestions,
-  listPublicSurveys,          // ✅ NEW
+  listPublicSurveys,
+  updateSurvey,            // ✅ NEW
+  deleteSurvey,            // ✅ NEW
+  updateSurveyQuestion,    // ✅ NEW
+  deleteSurveyQuestion,    // ✅ NEW
 } from "../controllers/surveyController.js";
 import {
   submitSurveyResponse,
@@ -32,12 +36,44 @@ router.get("/public/list", listPublicSurveys);
 // ✅ Create survey (Admin)
 router.post("/create", requireAuth, requireAdminOnly, createSurvey);
 
+// ✅ Update survey (Admin)
+router.put(
+  "/:surveyIdOrCode",
+  requireAuth,
+  requireAdminOnly,
+  updateSurvey
+);
+
+// ✅ Delete survey (Admin)
+router.delete(
+  "/:surveyIdOrCode",
+  requireAuth,
+  requireAdminOnly,
+  deleteSurvey
+);
+
 // ✅ Add question (Admin)
 router.post(
   "/:surveyIdOrCode/questions",
   requireAuth,
   requireAdminOnly,
   addSurveyQuestion
+);
+
+// ✅ Update question (Admin)
+router.put(
+  "/questions/:questionId",
+  requireAuth,
+  requireAdminOnly,
+  updateSurveyQuestion
+);
+
+// ✅ Delete question (Admin)
+router.delete(
+  "/questions/:questionId",
+  requireAuth,
+  requireAdminOnly,
+  deleteSurveyQuestion
 );
 
 // ✅ List surveys (Admin)
