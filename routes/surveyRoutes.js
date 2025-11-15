@@ -15,6 +15,7 @@ import {
   submitSurveyResponse,
   listSurveyResponses,
   listUserSurveySummary,
+  adminSurveyResponseSummary, // ✅ NEW
 } from "../controllers/surveyResponseController.js";
 import { requireAuth } from "../middleware/auth.js";
 import { uploadSurveyAudio } from "../config/cloudinary.js";
@@ -78,6 +79,14 @@ router.delete(
 
 // ✅ List surveys (Admin)
 router.get("/list", requireAuth, requireAdminOnly, listSurveys);
+
+// ✅ NEW: Admin summary — sabhi surveys + response count + users
+router.get(
+  "/responses/summary",
+  requireAuth,
+  requireAdminOnly,
+  adminSurveyResponseSummary
+);
 
 // ✅ Get survey + questions
 // SURVEY_USER app me: ?userCode=USR-XXXX bhejoge to punch-in check hoga

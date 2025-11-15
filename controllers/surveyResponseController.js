@@ -321,7 +321,7 @@ export const listUserSurveySummary = async (req, res) => {
           name: s.name,
           description: s.description,
           status: s.status,
-          responses: [],    // yahan detailed responses jayenge
+          responses: [], // yahan detailed responses jayenge
         });
       }
 
@@ -363,6 +363,78 @@ export const listUserSurveySummary = async (req, res) => {
     });
   } catch (err) {
     console.error("listUserSurveySummary error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ✅ NEW: Admin summary — har survey pe kitne responses + kis user ne diye
+export const adminSurveyResponseSummary = async (req, res) => {
+  try {
+    const adminId = req.user?.sub;
+    if (!adminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Group by survey in SurveyResponse
+    const grouped = await SurveyResponse.aggregate([
+      {
+        $group: {
+          _id: "$survey",
+          surveyCode: { $first: "$surveyCode" },
+          totalResponses: { $sum: 1 },
+          users: {
+            $addToSet: {
+              userCode: "$userCode",
+              userName: "$userName",
+              userMobile: "$userMobile",
+            },
+          },
+          lastResponseAt: { $max: "$createdAt" },
+        },
+      },
+      { $sort: { lastResponseAt: -1 } },
+    ]);
+
+    if (!grouped.length) {
+      return res.json({ surveys: [] });
+    }
+
+    const surveyIds = grouped.map((g) => g._id);
+    const surveys = await Survey.find(
+      { _id: { $in: surveyIds } },
+      {
+        name: 1,
+        surveyCode: 1,
+        status: 1,
+        category: 1,
+        projectName: 1,
+      }
+    ).lean();
+
+    const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
+
+    const result = grouped
+      .map((g) => {
+        const s = surveyMap.get(String(g._id));
+        if (!s) return null;
+
+        return {
+          surveyId: s._id,
+          surveyCode: s.surveyCode || g.surveyCode,
+          name: s.name,
+          status: s.status,
+          category: s.category,
+          projectName: s.projectName,
+          totalResponses: g.totalResponses,
+          users: g.users, // [{ userCode, userName, userMobile }]
+          lastResponseAt: g.lastResponseAt,
+        };
+      })
+      .filter(Boolean);
+
+    return res.json({ surveys: result });
+  } catch (err) {
+    console.error("adminSurveyResponseSummary error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
