@@ -3,6 +3,7 @@ import express from "express";
 import {
   createUserByAdmin,
   loginUser,
+  loginQualityEngineer,
   listUsers,
   getUserById,
   updateUserByAdmin,
@@ -24,6 +25,9 @@ const requireAdminOnly = (req, res, next) => {
 
 // PUBLIC
 router.post("/login", loginUser);
+
+// ✅ PUBLIC - Only QUALITY_ENGINEER login route
+router.post("/login/quality-engineer", loginQualityEngineer);
 
 // ADMIN ONLY (with profile photo upload)
 router.post(

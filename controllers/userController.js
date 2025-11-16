@@ -125,7 +125,7 @@ export const createUserByAdmin = async (req, res) => {
   }
 };
 
-// ✅ User login with mobile + password (returns token)
+// ✅ User login with mobile + password (returns token, SURVEY_USER + QE)
 export const loginUser = async (req, res) => {
   try {
     const { mobile, password } = req.body;
@@ -176,6 +176,68 @@ export const loginUser = async (req, res) => {
     });
   } catch (err) {
     console.error("loginUser error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ✅ Only QUALITY_ENGINEER login (separate endpoint)
+export const loginQualityEngineer = async (req, res) => {
+  try {
+    const { mobile, password } = req.body;
+    if (!mobile || !password) {
+      return res
+        .status(400)
+        .json({ message: "mobile and password are required." });
+    }
+
+    const user = await User.findOne({ mobile })
+      .select("+password")
+      .lean(false);
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ message: "User is inactive / blocked." });
+    }
+
+    // ❗ Only QUALITY_ENGINEER allowed on this route
+    if (user.role !== "QUALITY_ENGINEER") {
+      return res
+        .status(403)
+        .json({ message: "Only Quality Engineer can login on this route." });
+    }
+
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
+
+    const token = signUserJwt(user);
+
+    return res.json({
+      message: "Quality Engineer login successful",
+      user: {
+        id: user._id,
+        userCode: user.userCode,
+        mobile: user.mobile,
+        role: user.role,
+        fullName: user.fullName,
+        email: user.email,
+        employeeCode: user.employeeCode,
+        department: user.department,
+        city: user.city,
+        state: user.state,
+        pincode: user.pincode,
+        dateOfJoining: user.dateOfJoining,
+        isActive: user.isActive,
+        profilePhotoUrl: user.profilePhotoUrl,
+      },
+      token,
+    });
+  } catch (err) {
+    console.error("loginQualityEngineer error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
