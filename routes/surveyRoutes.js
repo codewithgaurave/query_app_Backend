@@ -96,6 +96,8 @@ router.get("/list", requireAuth, requireAdminOnly, listSurveys);
 // ✅ NEW: Admin summary — sabhi surveys + response count + users
 router.get(
   "/responses/summary",
+  requireAuth,
+  requireAdminOnly,
   adminSurveyResponseSummary
 );
 
@@ -124,6 +126,7 @@ router.get("/responses/user/:userCode", listUserSurveySummary);
 // ✅ NEW: QUALITY_ENGINEER approves a specific response
 router.patch(
   "/responses/:responseId/approve",
+  requireAuth,
   requireQualityEngineerOnly,
   approveSurveyResponse
 );
