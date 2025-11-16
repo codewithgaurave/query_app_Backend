@@ -568,16 +568,10 @@ export const listSurveys = async (req, res) => {
 // ✅ Public: list ACTIVE surveys for SURVEY_USER app (no auth)
 export const listPublicSurveys = async (req, res) => {
   try {
-    const { status } = req.query;
-
     const filter = {
-      isActive: true, // sirf active flag wali
+      isActive: true,
+      status: "ACTIVE"  // <-- always only ACTIVE
     };
-
-    // Agar status diya hai tabhi filter karo
-    if (status) {
-      filter.status = status; // DRAFT / ACTIVE / CLOSED jo bhi bhejo
-    }
 
     const surveys = await Survey.find(
       filter,
@@ -608,6 +602,7 @@ export const listPublicSurveys = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
 
 // ✅ Get survey + its questions (by _id or surveyCode)
 // 🔴 SURVEY_USER case me ?userCode=USR-XXXX pass kare aur yahan punch-in check hoga
