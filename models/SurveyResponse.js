@@ -62,6 +62,16 @@ const surveyResponseSchema = new mongoose.Schema(
       default: true,
     },
 
+    // ✅ NEW: approval info
+    isApproved: {
+      type: Boolean,
+      default: false,
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User", // QUALITY_ENGINEER expected
+    },
+
     answers: [answerSchema],
   },
   { timestamps: true }

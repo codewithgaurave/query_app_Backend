@@ -231,6 +231,8 @@ export const listSurveyResponses = async (req, res) => {
         audioUrl: 1,
         answers: 1,
         isCompleted: 1,
+        isApproved: 1,   // ✅ will now be present
+        approvedBy: 1,   // ✅
         createdAt: 1,
       }
     )
@@ -270,6 +272,8 @@ export const listUserSurveySummary = async (req, res) => {
         audioUrl: 1,
         answers: 1,
         isCompleted: 1,
+        isApproved: 1,    // ✅ include approval info
+        approvedBy: 1,
         createdAt: 1,
       }
     )
@@ -338,6 +342,8 @@ export const listUserSurveySummary = async (req, res) => {
         responseId: r._id,
         audioUrl: r.audioUrl,
         isCompleted: r.isCompleted,
+        isApproved: r.isApproved,      // ✅ new
+        approvedBy: r.approvedBy,      // ✅ new
         createdAt: r.createdAt,
         answers,
       });
@@ -435,6 +441,63 @@ export const adminSurveyResponseSummary = async (req, res) => {
     return res.json({ surveys: result });
   } catch (err) {
     console.error("adminSurveyResponseSummary error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ✅ NEW: QUALITY_ENGINEER approves a response
+export const approveSurveyResponse = async (req, res) => {
+  try {
+    const userJwt = req.user;
+
+    // token se check karo: sirf QUALITY_ENGINEER allow
+    if (
+      !userJwt ||
+      userJwt.type !== "USER" ||
+      userJwt.role !== "QUALITY_ENGINEER"
+    ) {
+      return res
+        .status(403)
+        .json({ message: "Only Quality Engineer can approve responses." });
+    }
+
+    const { responseId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(responseId)) {
+      return res.status(400).json({ message: "Invalid responseId." });
+    }
+
+    const updated = await SurveyResponse.findByIdAndUpdate(
+      responseId,
+      {
+        isApproved: true,
+        approvedBy: userJwt.sub,
+      },
+      {
+        new: true,
+        projection: {
+          survey: 1,
+          surveyCode: 1,
+          userCode: 1,
+          userName: 1,
+          isCompleted: 1,
+          isApproved: 1,
+          approvedBy: 1,
+          createdAt: 1,
+        },
+      }
+    ).lean();
+
+    if (!updated) {
+      return res.status(404).json({ message: "Survey response not found." });
+    }
+
+    return res.json({
+      message: "Response approved successfully",
+      response: updated,
+    });
+  } catch (err) {
+    console.error("approveSurveyResponse error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

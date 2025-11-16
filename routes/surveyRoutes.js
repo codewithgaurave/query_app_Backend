@@ -16,6 +16,7 @@ import {
   listSurveyResponses,
   listUserSurveySummary,
   adminSurveyResponseSummary, // ✅ NEW
+  approveSurveyResponse,      // ✅ NEW
 } from "../controllers/surveyResponseController.js";
 import { requireAuth } from "../middleware/auth.js";
 import { uploadSurveyAudio } from "../config/cloudinary.js";
@@ -26,6 +27,18 @@ const router = express.Router();
 const requireAdminOnly = (req, res, next) => {
   if (!req.user || !req.user.adminId) {
     return res.status(403).json({ message: "Admin access only" });
+  }
+  next();
+};
+
+// ✅ QUALITY_ENGINEER-only guard
+const requireQualityEngineerOnly = (req, res, next) => {
+  if (
+    !req.user ||
+    req.user.type !== "USER" ||
+    req.user.role !== "QUALITY_ENGINEER"
+  ) {
+    return res.status(403).json({ message: "Quality Engineer access only" });
   }
   next();
 };
@@ -109,5 +122,13 @@ router.get(
 
 // ✅ kis user ne kaun-kaun se surveys ka answer de diya (userCode se)
 router.get("/responses/user/:userCode", listUserSurveySummary);
+
+// ✅ NEW: QUALITY_ENGINEER approves a specific response
+router.patch(
+  "/responses/:responseId/approve",
+  requireAuth,
+  requireQualityEngineerOnly,
+  approveSurveyResponse
+);
 
 export default router;
