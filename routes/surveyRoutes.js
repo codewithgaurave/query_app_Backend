@@ -96,7 +96,6 @@ router.get("/list", requireAuth, requireAdminOnly, listSurveys);
 // ✅ NEW: Admin summary — sabhi surveys + response count + users
 router.get(
   "/responses/summary",
-  requireAdminOnly,
   adminSurveyResponseSummary
 );
 
