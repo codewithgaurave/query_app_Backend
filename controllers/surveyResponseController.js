@@ -231,8 +231,8 @@ export const listSurveyResponses = async (req, res) => {
         audioUrl: 1,
         answers: 1,
         isCompleted: 1,
-        isApproved: 1,   // ✅ will now be present
-        approvedBy: 1,   // ✅
+        isApproved: 1,
+        approvedBy: 1,
         createdAt: 1,
       }
     )
@@ -272,7 +272,7 @@ export const listUserSurveySummary = async (req, res) => {
         audioUrl: 1,
         answers: 1,
         isCompleted: 1,
-        isApproved: 1,    // ✅ include approval info
+        isApproved: 1,
         approvedBy: 1,
         createdAt: 1,
       }
@@ -294,7 +294,6 @@ export const listUserSurveySummary = async (req, res) => {
       });
     }
 
-    // unique surveys collect
     const surveyIdSet = new Set(responses.map((r) => String(r.survey)));
     const surveyIds = Array.from(surveyIdSet);
 
@@ -310,7 +309,6 @@ export const listUserSurveySummary = async (req, res) => {
 
     const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
 
-    // group by survey
     const grouped = new Map();
 
     for (const r of responses) {
@@ -325,7 +323,7 @@ export const listUserSurveySummary = async (req, res) => {
           name: s.name,
           description: s.description,
           status: s.status,
-          responses: [], // yahan detailed responses jayenge
+          responses: [],
         });
       }
 
@@ -342,15 +340,14 @@ export const listUserSurveySummary = async (req, res) => {
         responseId: r._id,
         audioUrl: r.audioUrl,
         isCompleted: r.isCompleted,
-        isApproved: r.isApproved,      // ✅ new
-        approvedBy: r.approvedBy,      // ✅ new
+        isApproved: r.isApproved,
+        approvedBy: r.approvedBy,
         createdAt: r.createdAt,
         answers,
       });
     }
 
     const surveysResult = Array.from(grouped.values()).sort((a, b) => {
-      // sort by last response time (desc)
       const lastA = a.responses[0]?.createdAt || 0;
       const lastB = b.responses[0]?.createdAt || 0;
       return lastB - lastA;
@@ -381,7 +378,6 @@ export const adminSurveyResponseSummary = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // Group by survey in SurveyResponse
     const grouped = await SurveyResponse.aggregate([
       {
         $group: {
@@ -432,7 +428,7 @@ export const adminSurveyResponseSummary = async (req, res) => {
           category: s.category,
           projectName: s.projectName,
           totalResponses: g.totalResponses,
-          users: g.users, // [{ userCode, userName, userMobile }]
+          users: g.users,
           lastResponseAt: g.lastResponseAt,
         };
       })
@@ -450,7 +446,6 @@ export const approveSurveyResponse = async (req, res) => {
   try {
     const userJwt = req.user;
 
-    // token se check karo: sirf QUALITY_ENGINEER allow
     if (
       !userJwt ||
       userJwt.type !== "USER" ||
@@ -498,6 +493,174 @@ export const approveSurveyResponse = async (req, res) => {
     });
   } catch (err) {
     console.error("approveSurveyResponse error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * ✅ NEW PUBLIC (NO AUTH):
+ * - Sabhi surveys ke saare responses
+ * - Kis user ne kiya, answers, audio, approval info sab
+ */
+export const publicSurveyResponsesWithApproval = async (req, res) => {
+  try {
+    const responses = await SurveyResponse.find(
+      {},
+      {
+        survey: 1,
+        surveyCode: 1,
+        userCode: 1,
+        userName: 1,
+        userMobile: 1,
+        userRole: 1,
+        audioUrl: 1,
+        answers: 1,
+        isCompleted: 1,
+        isApproved: 1,
+        approvedBy: 1,
+        createdAt: 1,
+      }
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!responses.length) {
+      return res.json({ surveys: [] });
+    }
+
+    const surveyIds = [
+      ...new Set(responses.map((r) => String(r.survey))),
+    ];
+
+    const surveys = await Survey.find(
+      { _id: { $in: surveyIds } },
+      {
+        name: 1,
+        surveyCode: 1,
+        description: 1,
+        status: 1,
+        category: 1,
+        projectName: 1,
+      }
+    ).lean();
+
+    const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
+
+    const grouped = new Map();
+
+    for (const r of responses) {
+      const key = String(r.survey);
+      const s = surveyMap.get(key);
+      if (!s) continue;
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          surveyId: s._id,
+          surveyCode: s.surveyCode,
+          name: s.name,
+          description: s.description,
+          status: s.status,
+          category: s.category,
+          projectName: s.projectName,
+          responses: [],
+        });
+      }
+
+      const answers = (r.answers || []).map((a) => ({
+        questionId: a.question,
+        questionText: a.questionText,
+        questionType: a.questionType,
+        answerText: a.answerText,
+        selectedOptions: a.selectedOptions,
+        rating: a.rating,
+      }));
+
+      grouped.get(key).responses.push({
+        responseId: r._id,
+        userCode: r.userCode,
+        userName: r.userName,
+        userMobile: r.userMobile,
+        userRole: r.userRole,
+        audioUrl: r.audioUrl,
+        isCompleted: r.isCompleted,
+        isApproved: r.isApproved,
+        approvedBy: r.approvedBy,
+        createdAt: r.createdAt,
+        answers,
+      });
+    }
+
+    const result = Array.from(grouped.values()).sort((a, b) => {
+      const lastA = a.responses[0]?.createdAt || 0;
+      const lastB = b.responses[0]?.createdAt || 0;
+      return lastB - lastA;
+    });
+
+    return res.json({ surveys: result });
+  } catch (err) {
+    console.error("publicSurveyResponsesWithApproval error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * ✅ NEW PUBLIC (NO AUTH):
+ * - Approve / Disapprove any response
+ * body: { "isApproved": true/false }
+ */
+export const publicSetSurveyResponseApproval = async (req, res) => {
+  try {
+    const { responseId } = req.params;
+    const { isApproved } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(responseId)) {
+      return res.status(400).json({ message: "Invalid responseId." });
+    }
+
+    if (typeof isApproved !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "isApproved (boolean) is required." });
+    }
+
+    const update = { isApproved };
+
+    // disapprove karte waqt approvedBy clear kar do
+    if (!isApproved) {
+      update.approvedBy = null;
+    }
+
+    const updated = await SurveyResponse.findByIdAndUpdate(
+      responseId,
+      update,
+      {
+        new: true,
+        projection: {
+          survey: 1,
+          surveyCode: 1,
+          userCode: 1,
+          userName: 1,
+          userMobile: 1,
+          isCompleted: 1,
+          isApproved: 1,
+          approvedBy: 1,
+          createdAt: 1,
+        },
+      }
+    ).lean();
+
+    if (!updated) {
+      return res.status(404).json({ message: "Survey response not found." });
+    }
+
+    return res.json({
+      message: `Response ${
+        isApproved ? "approved" : "disapproved"
+      } successfully`,
+      response: updated,
+    });
+  } catch (err) {
+    console.error("publicSetSurveyResponseApproval error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

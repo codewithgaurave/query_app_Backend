@@ -6,17 +6,20 @@ import {
   listSurveys,
   getSurveyWithQuestions,
   listPublicSurveys,
-  updateSurvey,            // ✅ NEW
-  deleteSurvey,            // ✅ NEW
-  updateSurveyQuestion,    // ✅ NEW
-  deleteSurveyQuestion,    // ✅ NEW
+  updateSurvey,
+  deleteSurvey,
+  updateSurveyQuestion,
+  deleteSurveyQuestion,
 } from "../controllers/surveyController.js";
 import {
   submitSurveyResponse,
   listSurveyResponses,
   listUserSurveySummary,
-  adminSurveyResponseSummary, // ✅ NEW
-  approveSurveyResponse,      // ✅ NEW
+  adminSurveyResponseSummary,
+  approveSurveyResponse,
+  // ⬇️ NEW PUBLIC CONTROLLERS
+  publicSurveyResponsesWithApproval,
+  publicSetSurveyResponseApproval,
 } from "../controllers/surveyResponseController.js";
 import { requireAuth } from "../middleware/auth.js";
 import { uploadSurveyAudio } from "../config/cloudinary.js";
@@ -31,7 +34,7 @@ const requireAdminOnly = (req, res, next) => {
   next();
 };
 
-// ✅ QUALITY_ENGINEER-only guard
+// QUALITY_ENGINEER-only guard
 const requireQualityEngineerOnly = (req, res, next) => {
   if (
     !req.user ||
@@ -46,6 +49,15 @@ const requireQualityEngineerOnly = (req, res, next) => {
 // ✅ PUBLIC: list surveys for SURVEY_USER app (no token)
 // default: sirf ACTIVE surveys
 router.get("/public/list", listPublicSurveys);
+
+// ✅ 🚨PUBLIC: sabhi surveys + unke responses + approval info (NO AUTH)
+router.get("/public/responses/all", publicSurveyResponsesWithApproval);
+
+// ✅ 🚨PUBLIC: approve / disapprove a specific response (NO AUTH)
+router.patch(
+  "/public/responses/:responseId/approval",
+  publicSetSurveyResponseApproval
+);
 
 // ✅ Create survey (Admin)
 router.post("/create", requireAuth, requireAdminOnly, createSurvey);
