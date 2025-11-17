@@ -53,7 +53,7 @@ router.get("/public/list", listPublicSurveys);
 // ✅ 🚨PUBLIC: sabhi surveys + unke responses + approval info (NO AUTH)
 router.get("/public/responses/all", publicSurveyResponsesWithApproval);
 
-// ✅ 🚨PUBLIC: approve / disapprove a specific response (NO AUTH)
+// ✅ 🚨PUBLIC: set approvalStatus for a specific response (NO AUTH)
 router.patch(
   "/public/responses/:responseId/approval",
   publicSetSurveyResponseApproval
@@ -135,9 +135,10 @@ router.get(
 // ✅ kis user ne kaun-kaun se surveys ka answer de diya (userCode se)
 router.get("/responses/user/:userCode", listUserSurveySummary);
 
-// ✅ NEW: QUALITY_ENGINEER approves a specific response
+// ✅ NEW: QUALITY_ENGINEER sets approvalStatus for a specific response
+// (route naam thoda generic kiya /approval)
 router.patch(
-  "/responses/:responseId/approve",
+  "/responses/:responseId/approval",
   requireAuth,
   requireQualityEngineerOnly,
   approveSurveyResponse
