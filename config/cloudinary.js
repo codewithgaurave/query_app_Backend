@@ -241,7 +241,7 @@ const surveyAudioStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "survey_audio",
-    resource_type: "auto", // any file: audio, video, document
+    resource_type: "auto",
   },
 });
 
