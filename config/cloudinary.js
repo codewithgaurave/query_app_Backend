@@ -236,40 +236,28 @@ const punchinMulter = multer({
 // single: photo
 const uploadPunchinPhoto = punchinMulter.single("photo");
 
-// ✅ SURVEY AUDIO (नई config)
+// ✅ SURVEY AUDIO (ANY FILE ALLOWED)
 const surveyAudioStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "survey_audio",
-    allowed_formats: ["mp3", "wav", "m4a", "aac", "ogg"],
-    resource_type: "auto", // audio/video auto handle
+    resource_type: "auto", // any file: audio, video, document
   },
 });
 
+// multer config (NO file filter)
 const surveyAudioMulter = multer({
   storage: surveyAudioStorage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB to be safe
   fileFilter: (req, file, cb) => {
-    const allowed = [
-      "audio/mpeg",
-      "audio/mp3",
-      "audio/wav",
-      "audio/x-wav",
-      "audio/aac",
-      "audio/ogg",
-      "audio/x-m4a",
-      "audio/mp4",
-    ];
-    if (allowed.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error("Invalid file type. Only audio files are allowed."),
-      false
-    );
+    // Allow every file type
+    cb(null, true);
   },
 });
 
 // single: audio
 const uploadSurveyAudio = surveyAudioMulter.single("audio");
+
 
 export {
   cloudinary,
