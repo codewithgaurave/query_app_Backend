@@ -60,6 +60,7 @@ export const submitSurveyResponse = async (req, res) => {
 
     let parsedAnswers;
     try {
+      // answers yaha string aa rha hai (multipart/form-data), isliye JSON.parse
       parsedAnswers = JSON.parse(answers || "[]");
     } catch (e) {
       return res
@@ -92,6 +93,10 @@ export const submitSurveyResponse = async (req, res) => {
         questionText: q.questionText,
         questionType: q.type,
       };
+
+      // "Other" option related flags from question
+      const hasOther = !!q.enableOtherOption;
+      const otherLabel = (q.otherOptionLabel || "Other").trim();
 
       switch (q.type) {
         case "OPEN_ENDED": {
@@ -132,16 +137,34 @@ export const submitSurveyResponse = async (req, res) => {
           if (!opt && Array.isArray(a.selectedOptions) && a.selectedOptions[0]) {
             opt = a.selectedOptions[0];
           }
+
           if (!opt || typeof opt !== "string") {
             return res.status(400).json({
               message: `selectedOption is required for question: ${q.questionText}`,
             });
           }
-          if (!Array.isArray(q.options) || !q.options.includes(opt)) {
+
+          const optionsFromDb = Array.isArray(q.options) ? q.options : [];
+          const isNormalOption = optionsFromDb.includes(opt);
+          const isOtherSelected = hasOther && opt === otherLabel;
+
+          if (!isNormalOption && !isOtherSelected) {
             return res.status(400).json({
               message: `selectedOption "${opt}" is not valid for question: ${q.questionText}`,
             });
           }
+
+          if (isOtherSelected) {
+            const otherText =
+              typeof a.otherText === "string" ? a.otherText.trim() : "";
+            if (!otherText) {
+              return res.status(400).json({
+                message: `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`,
+              });
+            }
+            entry.otherText = otherText;
+          }
+
           entry.selectedOptions = [opt];
           break;
         }
@@ -160,7 +183,22 @@ export const submitSurveyResponse = async (req, res) => {
               message: `Question options missing for CHECKBOX question: ${q.questionText}`,
             });
           }
-          const invalid = opts.filter((o) => !q.options.includes(o));
+
+          const optionsFromDb = q.options;
+          const invalid = [];
+          let usedOther = false;
+
+          for (const val of opts) {
+            const isNormalOption = optionsFromDb.includes(val);
+            const isOtherSelected = hasOther && val === otherLabel;
+            if (!isNormalOption && !isOtherSelected) {
+              invalid.push(val);
+            }
+            if (isOtherSelected) {
+              usedOther = true;
+            }
+          }
+
           if (invalid.length) {
             return res.status(400).json({
               message: `Invalid options ${invalid.join(
@@ -168,6 +206,18 @@ export const submitSurveyResponse = async (req, res) => {
               )} for question: ${q.questionText}`,
             });
           }
+
+          if (usedOther) {
+            const otherText =
+              typeof a.otherText === "string" ? a.otherText.trim() : "";
+            if (!otherText) {
+              return res.status(400).json({
+                message: `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`,
+              });
+            }
+            entry.otherText = otherText;
+          }
+
           entry.selectedOptions = opts;
           break;
         }
@@ -342,6 +392,7 @@ export const listUserSurveySummary = async (req, res) => {
         answerText: a.answerText,
         selectedOptions: a.selectedOptions,
         rating: a.rating,
+        otherText: a.otherText, // ⭐ Other text bhi expose karo
       }));
 
       grouped.get(key).responses.push({
@@ -605,6 +656,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         answerText: a.answerText,
         selectedOptions: a.selectedOptions,
         rating: a.rating,
+        otherText: a.otherText, // ⭐ yaha bhi Other expose karo
       }));
 
       grouped.get(key).responses.push({
