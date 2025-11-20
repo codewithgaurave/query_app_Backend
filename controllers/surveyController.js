@@ -243,6 +243,9 @@ export const addSurveyQuestion = async (req, res) => {
       required,
       order,
       helpText,
+      // ⭐ NEW from FE
+      enableOtherOption,
+      otherOptionLabel,
     } = req.body;
 
     if (!questionText || !type) {
@@ -292,6 +295,14 @@ export const addSurveyQuestion = async (req, res) => {
           .json({ message: "options are required for this question type." });
       }
       doc.options = options;
+
+      // ⭐ "Other" option only meaningful for option-based questions
+      if (typeof enableOtherOption === "boolean") {
+        doc.enableOtherOption = enableOtherOption;
+      }
+      if (typeof otherOptionLabel === "string" && otherOptionLabel.trim()) {
+        doc.otherOptionLabel = otherOptionLabel.trim();
+      }
     }
 
     // checkbox & mcq multiple handling
@@ -329,6 +340,8 @@ export const addSurveyQuestion = async (req, res) => {
       )
     ) {
       cleanQuestion.options = question.options;
+      cleanQuestion.enableOtherOption = question.enableOtherOption;
+      cleanQuestion.otherOptionLabel = question.otherOptionLabel;
     }
 
     if (["MCQ_SINGLE", "CHECKBOX"].includes(question.type)) {
@@ -376,6 +389,9 @@ export const updateSurveyQuestion = async (req, res) => {
       order,
       helpText,
       isActive,
+      // ⭐ NEW from FE for "Other"
+      enableOtherOption,
+      otherOptionLabel,
     } = req.body;
 
     const question = await SurveyQuestion.findById(questionId);
@@ -431,9 +447,19 @@ export const updateSurveyQuestion = async (req, res) => {
         }
         question.options = options;
       }
+
+      // ⭐ "Other" fields only meaningful for option-based questions
+      if (typeof enableOtherOption === "boolean") {
+        question.enableOtherOption = enableOtherOption;
+      }
+      if (typeof otherOptionLabel === "string") {
+        const trimmed = otherOptionLabel.trim();
+        question.otherOptionLabel = trimmed || "Other";
+      }
     } else {
-      // non-option types ke liye options reset karna optional hai
-      // question.options = [];
+      // non-option types ke liye safe side pe reset
+      question.enableOtherOption = false;
+      question.otherOptionLabel = undefined;
     }
 
     if (finalType === "CHECKBOX") {
@@ -479,6 +505,8 @@ export const updateSurveyQuestion = async (req, res) => {
       )
     ) {
       cleanQuestion.options = question.options;
+      cleanQuestion.enableOtherOption = question.enableOtherOption;
+      cleanQuestion.otherOptionLabel = question.otherOptionLabel;
     }
 
     if (["MCQ_SINGLE", "CHECKBOX"].includes(question.type)) {
@@ -677,6 +705,8 @@ export const getSurveyWithQuestions = async (req, res) => {
         )
       ) {
         base.options = q.options;
+        base.enableOtherOption = q.enableOtherOption;
+        base.otherOptionLabel = q.otherOptionLabel;
       }
 
       if (["MCQ_SINGLE", "CHECKBOX"].includes(q.type)) {

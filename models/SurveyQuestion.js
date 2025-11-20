@@ -45,6 +45,17 @@ const surveyQuestionSchema = new mongoose.Schema(
       default: false,
     },
 
+    // ⭐ NEW: "Other" option support for option-based questions
+    enableOtherOption: {
+      type: Boolean,
+      default: false,
+    },
+    otherOptionLabel: {
+      type: String,
+      trim: true,
+      default: "Other",
+    },
+
     // rating config
     minRating: {
       type: Number,
@@ -59,7 +70,6 @@ const surveyQuestionSchema = new mongoose.Schema(
       default: 1,
     },
 
-    // likert default options (agar options na mile to FE handle kar sakta)
     // required flag
     required: {
       type: Boolean,
