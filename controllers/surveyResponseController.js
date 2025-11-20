@@ -29,7 +29,7 @@ const findSurveyByIdOrCode = async (surveyIdOrCode) => {
 export const submitSurveyResponse = async (req, res) => {
   try {
     const { surveyIdOrCode } = req.params;
-    const { userCode, answers } = req.body;
+    const { userCode, answers, latitude, longitude } = req.body;
 
     if (!userCode) {
       return res.status(400).json({ message: "userCode is required." });
@@ -56,6 +56,28 @@ export const submitSurveyResponse = async (req, res) => {
       return res
         .status(400)
         .json({ message: "Audio recording (audio) is required." });
+    }
+
+    // ✅ Location parse (optional)
+    let latitudeNum;
+    let longitudeNum;
+
+    if (latitude !== undefined) {
+      latitudeNum = Number(latitude);
+      if (Number.isNaN(latitudeNum)) {
+        return res
+          .status(400)
+          .json({ message: "latitude must be a valid number." });
+      }
+    }
+
+    if (longitude !== undefined) {
+      longitudeNum = Number(longitude);
+      if (Number.isNaN(longitudeNum)) {
+        return res
+          .status(400)
+          .json({ message: "longitude must be a valid number." });
+      }
     }
 
     let parsedAnswers;
@@ -244,6 +266,9 @@ export const submitSurveyResponse = async (req, res) => {
       userMobile: user.mobile,
       userRole: user.role,
       audioUrl: req.file.path,
+      // ✅ location (optional)
+      latitude: latitudeNum,
+      longitude: longitudeNum,
       isCompleted: true,
       answers: normalizedAnswers,
       // ✅ approval defaults
@@ -291,6 +316,9 @@ export const listSurveyResponses = async (req, res) => {
         approvalStatus: 1,
         approvedBy: 1,
         createdAt: 1,
+        // ✅ location fields
+        latitude: 1,
+        longitude: 1,
       }
     )
       .sort({ createdAt: -1 })
@@ -333,6 +361,9 @@ export const listUserSurveySummary = async (req, res) => {
         approvalStatus: 1,
         approvedBy: 1,
         createdAt: 1,
+        // ✅ location fields
+        latitude: 1,
+        longitude: 1,
       }
     )
       .sort({ createdAt: -1 })
@@ -392,12 +423,15 @@ export const listUserSurveySummary = async (req, res) => {
         answerText: a.answerText,
         selectedOptions: a.selectedOptions,
         rating: a.rating,
-        otherText: a.otherText, // ⭐ Other text bhi expose karo
+        otherText: a.otherText,
       }));
 
       grouped.get(key).responses.push({
         responseId: r._id,
         audioUrl: r.audioUrl,
+        // ✅ location per response
+        latitude: r.latitude,
+        longitude: r.longitude,
         isCompleted: r.isCompleted,
         isApproved: r.isApproved,
         approvalStatus: r.approvalStatus,
@@ -604,6 +638,9 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         approvalStatus: 1,
         approvedBy: 1,
         createdAt: 1,
+        // ✅ location fields
+        latitude: 1,
+        longitude: 1,
       }
     )
       .sort({ createdAt: -1 })
@@ -656,7 +693,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         answerText: a.answerText,
         selectedOptions: a.selectedOptions,
         rating: a.rating,
-        otherText: a.otherText, // ⭐ yaha bhi Other expose karo
+        otherText: a.otherText,
       }));
 
       grouped.get(key).responses.push({
@@ -666,6 +703,9 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         userMobile: r.userMobile,
         userRole: r.userRole,
         audioUrl: r.audioUrl,
+        // ✅ location per response
+        latitude: r.latitude,
+        longitude: r.longitude,
         isCompleted: r.isCompleted,
         isApproved: r.isApproved,
         approvalStatus: r.approvalStatus,

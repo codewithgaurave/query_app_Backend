@@ -28,6 +28,9 @@ const answerSchema = new mongoose.Schema(
 
     // rating
     rating: { type: Number },
+
+    // ✅ "Other" option ka text
+    otherText: { type: String },
   },
   { _id: false }
 );
@@ -65,13 +68,21 @@ const surveyResponseSchema = new mongoose.Schema(
       required: true,
     },
 
+    // ✅ NEW: user location (optional)
+    latitude: {
+      type: Number,
+    },
+    longitude: {
+      type: Number,
+    },
+
     // ek response complete hai ya nahi (future ke liye useful)
     isCompleted: {
       type: Boolean,
       default: true,
     },
 
-    // ✅ NEW: enum based approval status
+    // ✅ enum based approval status
     approvalStatus: {
       type: String,
       enum: Object.values(APPROVAL_STATUS),
