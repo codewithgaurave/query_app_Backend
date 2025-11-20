@@ -3,8 +3,8 @@ import crypto from "crypto";
 import mongoose from "mongoose";
 import Survey from "../models/Survey.js";
 import SurveyQuestion from "../models/SurveyQuestion.js";
-import PunchIn from "../models/PunchIn.js";     // ✅ NEW
-import User from "../models/User.js";           // ✅ NEW
+import PunchIn from "../models/PunchIn.js"; // ✅
+import User from "../models/User.js";       // ✅
 
 // helper: random surveyCode
 const generateSurveyCode = () =>
@@ -24,13 +24,13 @@ const getTodayRange = () => {
 
 // allowed question types
 const VALID_QUESTION_TYPES = [
-  "OPEN_ENDED",   // 1
-  "MCQ_SINGLE",   // 2
-  "RATING",       // 3
-  "LIKERT",       // 4
-  "CHECKBOX",     // 5
-  "DROPDOWN",     // 6
-  "YES_NO",       // 7
+  "OPEN_ENDED", // 1
+  "MCQ_SINGLE", // 2
+  "RATING",     // 3
+  "LIKERT",     // 4
+  "CHECKBOX",   // 5
+  "DROPDOWN",   // 6
+  "YES_NO",     // 7
 ];
 
 // ✅ helper: Mongo _id ya surveyCode se survey laao
@@ -64,6 +64,8 @@ export const createSurvey = async (req, res) => {
       language,
       tags,
       allowedQuestionTypes,
+      // ✅ NEW: frontend se array of userIds
+      assignedUserIds,
     } = req.body;
 
     if (!name) {
@@ -78,6 +80,36 @@ export const createSurvey = async (req, res) => {
       if (!allowedTypes.length) {
         return res.status(400).json({ message: "Invalid allowedQuestionTypes" });
       }
+    }
+
+    // ✅ assigned users resolve karo
+    let assignedUsers = [];
+    if (Array.isArray(assignedUserIds) && assignedUserIds.length) {
+      const validIds = assignedUserIds.filter((id) =>
+        mongoose.Types.ObjectId.isValid(id)
+      );
+
+      if (!validIds.length) {
+        return res
+          .status(400)
+          .json({ message: "No valid assignedUserIds provided." });
+      }
+
+      const users = await User.find({
+        _id: { $in: validIds },
+        isActive: true,
+      })
+        .select("_id role")
+        .lean();
+
+      if (!users.length) {
+        return res.status(400).json({
+          message: "No active users found for assignedUserIds.",
+        });
+      }
+
+      // (optional) sirf SURVEY_USER ko assign karna ho to filter:
+      assignedUsers = users.map((u) => u._id);
     }
 
     const surveyCode = generateSurveyCode();
@@ -98,6 +130,7 @@ export const createSurvey = async (req, res) => {
       tags,
       allowedQuestionTypes: allowedTypes,
       createdByAdmin: adminId,
+      assignedUsers, // ✅ NEW
     });
 
     return res.status(201).json({
@@ -140,6 +173,8 @@ export const updateSurvey = async (req, res) => {
       tags,
       allowedQuestionTypes,
       isActive,
+      // ✅ NEW: updated list of userIds (full replacement)
+      assignedUserIds,
     } = req.body;
 
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
@@ -175,6 +210,39 @@ export const updateSurvey = async (req, res) => {
           .json({ message: "Invalid allowedQuestionTypes" });
       }
       update.allowedQuestionTypes = filtered;
+    }
+
+    // ✅ NEW: assignment update (full replacement)
+    if (Array.isArray(assignedUserIds)) {
+      if (!assignedUserIds.length) {
+        // agar empty array bheje to sab assignment hata do
+        update.assignedUsers = [];
+      } else {
+        const validIds = assignedUserIds.filter((id) =>
+          mongoose.Types.ObjectId.isValid(id)
+        );
+
+        if (!validIds.length) {
+          return res
+            .status(400)
+            .json({ message: "No valid assignedUserIds provided." });
+        }
+
+        const users = await User.find({
+          _id: { $in: validIds },
+          isActive: true,
+        })
+          .select("_id role")
+          .lean();
+
+        if (!users.length) {
+          return res.status(400).json({
+            message: "No active users found for assignedUserIds.",
+          });
+        }
+
+        update.assignedUsers = users.map((u) => u._id);
+      }
     }
 
     const updatedSurvey = await Survey.findByIdAndUpdate(
@@ -581,8 +649,11 @@ export const listSurveys = async (req, res) => {
         endDate: 1,
         isActive: 1,
         createdAt: 1,
+        // ✅ show assigned users in admin list
+        assignedUsers: 1,
       }
     )
+      .populate("assignedUsers", "fullName mobile userCode role isActive")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -593,13 +664,41 @@ export const listSurveys = async (req, res) => {
   }
 };
 
-// ✅ Public: list ACTIVE surveys for SURVEY_USER app (no auth)
+// ✅ Public: list ACTIVE surveys for SURVEY_USER app
+//   - Agar userCode nahi diya => (optional) sab ACTIVE + isActive surveys (global)
+//   - Agar userCode diya => sirf woh surveys jisme assignedUsers me woh user hai
+//     (yani "jo survey usko assigned hai bas usko wahi survey dikhane")
 export const listPublicSurveys = async (req, res) => {
   try {
-    const filter = {
+    const { userCode } = req.query;
+
+    const baseFilter = {
       isActive: true,
-      status: "ACTIVE"  // <-- always only ACTIVE
+      status: "ACTIVE",
     };
+
+    let filter = { ...baseFilter };
+
+    // agar app se userCode aaya hai (SURVEY_USER)
+    if (userCode) {
+      const user = await User.findOne({
+        userCode,
+        role: "SURVEY_USER",
+        isActive: true,
+      }).lean();
+
+      if (!user) {
+        return res.status(404).json({
+          message: "Active SURVEY_USER not found for this userCode.",
+          code: "USER_NOT_FOUND",
+        });
+      }
+
+      // 🔴 IMPORTANT:
+      // Ab sirf wahi surveys dikhenge jo iss user ko assign hain
+      // Yani global (assignedUsers empty) surveys yahan nahi dikhayenge
+      filter.assignedUsers = user._id;
+    }
 
     const surveys = await Survey.find(
       filter,
@@ -633,16 +732,21 @@ export const listPublicSurveys = async (req, res) => {
 
 
 // ✅ Get survey + its questions (by _id or surveyCode)
-// 🔴 SURVEY_USER case me ?userCode=USR-XXXX pass kare aur yahan punch-in check hoga
+// 🔴 SURVEY_USER case me ?userCode=USR-XXXX pass kare:
+//    - Active SURVEY_USER check
+//    - Aaj ka punch-in check
+//    - Survey assignment check (agar survey assignedUsers use karta hai)
 export const getSurveyWithQuestions = async (req, res) => {
   try {
     const { surveyIdOrCode } = req.params;
     const { userCode } = req.query; // 🔴 NEW
 
-    // 🔴 Agar userCode aaya hai to SURVEY_USER + punch-in validate karo
+    let user = null;
+
+    // 🔴 Agar userCode aaya hai to SURVEY_USER + punch-in + assignment validate karo
     if (userCode) {
       // 1) Check valid active SURVEY_USER
-      const user = await User.findOne({
+      user = await User.findOne({
         userCode,
         role: "SURVEY_USER",
         isActive: true,
@@ -665,17 +769,39 @@ export const getSurveyWithQuestions = async (req, res) => {
 
       if (!todayPunch) {
         return res.status(403).json({
-          message:
-            "Please punch-in first for today before taking the survey.",
+          message: "Please punch-in first for today before taking the survey.",
           code: "PUNCH_IN_REQUIRED",
         });
       }
     }
 
-    // ✅ Aage same purana survey + questions logic
+    // ✅ survey fetch
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
     if (!survey) {
       return res.status(404).json({ message: "Survey not found" });
+    }
+
+    // ✅ Agar userCode diya hai to assignment bhi verify karo
+    if (userCode && user) {
+      // agar survey ke paas assignedUsers ka data hai
+      if (
+        Array.isArray(survey.assignedUsers) &&
+        survey.assignedUsers.length > 0
+      ) {
+        const isAssigned = survey.assignedUsers.some(
+          (id) => String(id) === String(user._id)
+        );
+
+        if (!isAssigned) {
+          return res.status(403).json({
+            message: "This survey is not assigned to this user.",
+            code: "SURVEY_NOT_ASSIGNED",
+          });
+        }
+      }
+      // agar assignedUsers empty hai ya field hi nahi hai =>
+      // abhi ke logic me survey ko open maan rahe (global)
+      // (agar tum chaho to yahan bhi strictly block kar sakte ho)
     }
 
     const rawQuestions = await SurveyQuestion.find({
@@ -732,3 +858,4 @@ export const getSurveyWithQuestions = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+

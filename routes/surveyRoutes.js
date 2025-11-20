@@ -48,6 +48,7 @@ const requireQualityEngineerOnly = (req, res, next) => {
 
 // ✅ PUBLIC: list surveys for SURVEY_USER app (no token)
 // default: sirf ACTIVE surveys
+// optional: ?userCode=USR-XXXX => sirf usko assigned surveys (ya global)
 router.get("/public/list", listPublicSurveys);
 
 // ✅ 🚨PUBLIC: sabhi surveys + unke responses + approval info (NO AUTH)
@@ -114,7 +115,7 @@ router.get(
 );
 
 // ✅ Get survey + questions
-// SURVEY_USER app me: ?userCode=USR-XXXX bhejoge to punch-in check hoga
+// SURVEY_USER app me: ?userCode=USR-XXXX bhejoge to punch-in + assignment check hoga
 router.get("/:surveyIdOrCode", getSurveyWithQuestions);
 
 // ✅ SURVEY_USER submit responses + audio (userCode based, no token)

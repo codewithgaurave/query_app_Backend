@@ -91,6 +91,14 @@ const surveySchema = new mongoose.Schema(
       },
     ],
 
+    // ✅ NEW: survey kis kis employee (User) ko assign hai
+    assignedUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     createdByAdmin: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
