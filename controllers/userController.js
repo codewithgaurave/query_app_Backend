@@ -378,6 +378,67 @@ export const updateUserByAdmin = async (req, res) => {
   }
 };
 
+// 🔐 NEW: Admin can reset a user's password
+export const resetUserPasswordByAdmin = async (req, res) => {
+  try {
+    const adminId = req.user?.sub;
+    if (!adminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const adminExists = await Admin.findById(adminId).lean();
+    if (!adminExists) {
+      return res.status(401).json({ message: "Admin no longer exists" });
+    }
+
+    const { id } = req.params;
+    const { password } = req.body; // you can call this "newPassword" if you prefer
+
+    if (!password) {
+      return res
+        .status(400)
+        .json({ message: "New password is required in body as 'password'." });
+    }
+
+    // (optional) basic length check
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters long." });
+    }
+
+    const hash = await bcrypt.hash(password, SALT_ROUNDS);
+
+    const user = await User.findByIdAndUpdate(
+      id,
+      { password: hash },
+      {
+        new: true,
+        projection: {
+          userCode: 1,
+          mobile: 1,
+          fullName: 1,
+          role: 1,
+          isActive: 1,
+          updatedAt: 1,
+        },
+      }
+    ).lean();
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      message: "User password reset successfully",
+      user,
+    });
+  } catch (err) {
+    console.error("resetUserPasswordByAdmin error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 // ✅ Block user
 export const blockUser = async (req, res) => {
   try {

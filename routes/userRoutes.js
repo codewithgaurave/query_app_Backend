@@ -10,6 +10,7 @@ import {
   blockUser,
   unblockUser,
   deleteUser,
+  resetUserPasswordByAdmin, // 🔐 NEW IMPORT
 } from "../controllers/userController.js";
 import { requireAuth } from "../middleware/auth.js";
 import { uploadUserFields } from "../config/cloudinary.js";
@@ -43,6 +44,16 @@ router.get("/list", requireAuth, requireAdminOnly, listUsers);
 router.get("/:id", requireAuth, requireAdminOnly, getUserById);
 
 router.patch("/:id", requireAuth, requireAdminOnly, updateUserByAdmin);
+
+// 🔐 NEW: Admin resets user password
+// PATCH /api/users/:id/reset-password
+// Body: { "password": "NewPassword123" }
+router.patch(
+  "/:id/reset-password",
+  requireAuth,
+  requireAdminOnly,
+  resetUserPasswordByAdmin
+);
 
 router.patch("/:id/block", requireAuth, requireAdminOnly, blockUser);
 
