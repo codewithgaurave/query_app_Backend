@@ -25,7 +25,204 @@ const findSurveyByIdOrCode = async (surveyIdOrCode) => {
   return Survey.findOne({ surveyCode: surveyIdOrCode }).lean();
 };
 
-// ✅ SURVEY_USER submit responses + audio
+/**
+ * ✅ Helper: answers ko validate + normalize kare
+ *  - parsedAnswers: FE se aaya array
+ *  - questionMap: Map(questionId -> questionDoc)
+ *  -> agar kuch galat hua to error throw karega { status, message }
+ */
+const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
+  if (!Array.isArray(parsedAnswers) || !parsedAnswers.length) {
+    const err = new Error("answers array is required and cannot be empty.");
+    err.status = 400;
+    throw err;
+  }
+
+  const normalizedAnswers = [];
+
+  for (const a of parsedAnswers) {
+    const qId = String(a.questionId || "");
+    const q = questionMap.get(qId);
+
+    if (!q) {
+      const err = new Error(`Invalid questionId "${qId}" for this survey.`);
+      err.status = 400;
+      throw err;
+    }
+
+    const entry = {
+      question: q._id,
+      questionText: q.questionText,
+      questionType: q.type,
+    };
+
+    // "Other" option related flags from question
+    const hasOther = !!q.enableOtherOption;
+    const otherLabel = (q.otherOptionLabel || "Other").trim();
+
+    switch (q.type) {
+      case "OPEN_ENDED": {
+        if (!a.answerText || typeof a.answerText !== "string") {
+          const err = new Error(
+            `answerText is required for OPEN_ENDED question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+        entry.answerText = a.answerText;
+        break;
+      }
+
+      case "RATING": {
+        const rating = Number(a.rating);
+        if (Number.isNaN(rating)) {
+          const err = new Error(
+            `rating (number) is required for RATING question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+        if (
+          typeof q.minRating === "number" &&
+          typeof q.maxRating === "number" &&
+          (rating < q.minRating || rating > q.maxRating)
+        ) {
+          const err = new Error(
+            `rating must be between ${q.minRating} and ${q.maxRating} for question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+        entry.rating = rating;
+        break;
+      }
+
+      case "MCQ_SINGLE":
+      case "DROPDOWN":
+      case "LIKERT":
+      case "YES_NO": {
+        let opt = a.selectedOption;
+        if (!opt && Array.isArray(a.selectedOptions) && a.selectedOptions[0]) {
+          opt = a.selectedOptions[0];
+        }
+
+        if (!opt || typeof opt !== "string") {
+          const err = new Error(
+            `selectedOption is required for question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+
+        const optionsFromDb = Array.isArray(q.options) ? q.options : [];
+        const isNormalOption = optionsFromDb.includes(opt);
+        const isOtherSelected = hasOther && opt === otherLabel;
+
+        if (!isNormalOption && !isOtherSelected) {
+          const err = new Error(
+            `selectedOption "${opt}" is not valid for question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+
+        if (isOtherSelected) {
+          const otherText =
+            typeof a.otherText === "string" ? a.otherText.trim() : "";
+          if (!otherText) {
+            const err = new Error(
+              `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
+            );
+            err.status = 400;
+            throw err;
+          }
+          entry.otherText = otherText;
+        }
+
+        entry.selectedOptions = [opt];
+        break;
+      }
+
+      case "CHECKBOX": {
+        const opts = Array.isArray(a.selectedOptions)
+          ? a.selectedOptions
+          : [];
+        if (!opts.length) {
+          const err = new Error(
+            `selectedOptions (array) is required for CHECKBOX question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+        if (!Array.isArray(q.options)) {
+          const err = new Error(
+            `Question options missing for CHECKBOX question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+
+        const optionsFromDb = q.options;
+        const invalid = [];
+        let usedOther = false;
+
+        for (const val of opts) {
+          const isNormalOption = optionsFromDb.includes(val);
+          const isOtherSelected = hasOther && val === otherLabel;
+          if (!isNormalOption && !isOtherSelected) {
+            invalid.push(val);
+          }
+          if (isOtherSelected) {
+            usedOther = true;
+          }
+        }
+
+        if (invalid.length) {
+          const err = new Error(
+            `Invalid options ${invalid.join(
+              ", "
+            )} for question: ${q.questionText}`
+          );
+          err.status = 400;
+          throw err;
+        }
+
+        if (usedOther) {
+          const otherText =
+            typeof a.otherText === "string" ? a.otherText.trim() : "";
+          if (!otherText) {
+            const err = new Error(
+              `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
+            );
+            err.status = 400;
+            throw err;
+          }
+          entry.otherText = otherText;
+        }
+
+        entry.selectedOptions = opts;
+        break;
+      }
+
+      default: {
+        // unknown type => ignore
+        continue;
+      }
+    }
+
+    normalizedAnswers.push(entry);
+  }
+
+  if (!normalizedAnswers.length) {
+    const err = new Error("No valid answers found for this survey.");
+    err.status = 400;
+    throw err;
+  }
+
+  return normalizedAnswers;
+};
+
+// ✅ SURVEY_USER submit responses + audio (SINGLE response)
 export const submitSurveyResponse = async (req, res) => {
   try {
     const { surveyIdOrCode } = req.params;
@@ -90,12 +287,6 @@ export const submitSurveyResponse = async (req, res) => {
         .json({ message: "answers must be a valid JSON array." });
     }
 
-    if (!Array.isArray(parsedAnswers) || !parsedAnswers.length) {
-      return res
-        .status(400)
-        .json({ message: "answers array is required and cannot be empty." });
-    }
-
     // ❗ isActive filter hata diya, taaki koi question skip na ho
     const questions = await SurveyQuestion.find({
       survey: survey._id,
@@ -104,165 +295,13 @@ export const submitSurveyResponse = async (req, res) => {
 
     const questionMap = new Map(questions.map((q) => [String(q._id), q]));
 
-    const normalizedAnswers = [];
-
-    for (const a of parsedAnswers) {
-      const qId = String(a.questionId || "");
-      const q = questionMap.get(qId);
-
-      // Pehle silently skip kar rahe the, ab proper error denge:
-      if (!q) {
-        return res.status(400).json({
-          message: `Invalid questionId "${qId}" for this survey.`,
-        });
-      }
-
-      const entry = {
-        question: q._id,
-        questionText: q.questionText,
-        questionType: q.type,
-      };
-
-      // "Other" option related flags from question
-      const hasOther = !!q.enableOtherOption;
-      const otherLabel = (q.otherOptionLabel || "Other").trim();
-
-      switch (q.type) {
-        case "OPEN_ENDED": {
-          if (!a.answerText || typeof a.answerText !== "string") {
-            return res.status(400).json({
-              message: `answerText is required for OPEN_ENDED question: ${q.questionText}`,
-            });
-          }
-          entry.answerText = a.answerText;
-          break;
-        }
-
-        case "RATING": {
-          const rating = Number(a.rating);
-          if (Number.isNaN(rating)) {
-            return res.status(400).json({
-              message: `rating (number) is required for RATING question: ${q.questionText}`,
-            });
-          }
-          if (
-            typeof q.minRating === "number" &&
-            typeof q.maxRating === "number" &&
-            (rating < q.minRating || rating > q.maxRating)
-          ) {
-            return res.status(400).json({
-              message: `rating must be between ${q.minRating} and ${q.maxRating} for question: ${q.questionText}`,
-            });
-          }
-          entry.rating = rating;
-          break;
-        }
-
-        case "MCQ_SINGLE":
-        case "DROPDOWN":
-        case "LIKERT":
-        case "YES_NO": {
-          let opt = a.selectedOption;
-          if (!opt && Array.isArray(a.selectedOptions) && a.selectedOptions[0]) {
-            opt = a.selectedOptions[0];
-          }
-
-          if (!opt || typeof opt !== "string") {
-            return res.status(400).json({
-              message: `selectedOption is required for question: ${q.questionText}`,
-            });
-          }
-
-          const optionsFromDb = Array.isArray(q.options) ? q.options : [];
-          const isNormalOption = optionsFromDb.includes(opt);
-          const isOtherSelected = hasOther && opt === otherLabel;
-
-          if (!isNormalOption && !isOtherSelected) {
-            return res.status(400).json({
-              message: `selectedOption "${opt}" is not valid for question: ${q.questionText}`,
-            });
-          }
-
-          if (isOtherSelected) {
-            const otherText =
-              typeof a.otherText === "string" ? a.otherText.trim() : "";
-            if (!otherText) {
-              return res.status(400).json({
-                message: `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`,
-              });
-            }
-            entry.otherText = otherText;
-          }
-
-          entry.selectedOptions = [opt];
-          break;
-        }
-
-        case "CHECKBOX": {
-          const opts = Array.isArray(a.selectedOptions)
-            ? a.selectedOptions
-            : [];
-          if (!opts.length) {
-            return res.status(400).json({
-              message: `selectedOptions (array) is required for CHECKBOX question: ${q.questionText}`,
-            });
-          }
-          if (!Array.isArray(q.options)) {
-            return res.status(400).json({
-              message: `Question options missing for CHECKBOX question: ${q.questionText}`,
-            });
-          }
-
-          const optionsFromDb = q.options;
-          const invalid = [];
-          let usedOther = false;
-
-          for (const val of opts) {
-            const isNormalOption = optionsFromDb.includes(val);
-            const isOtherSelected = hasOther && val === otherLabel;
-            if (!isNormalOption && !isOtherSelected) {
-              invalid.push(val);
-            }
-            if (isOtherSelected) {
-              usedOther = true;
-            }
-          }
-
-          if (invalid.length) {
-            return res.status(400).json({
-              message: `Invalid options ${invalid.join(
-                ", "
-              )} for question: ${q.questionText}`,
-            });
-          }
-
-          if (usedOther) {
-            const otherText =
-              typeof a.otherText === "string" ? a.otherText.trim() : "";
-            if (!otherText) {
-              return res.status(400).json({
-                message: `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`,
-              });
-            }
-            entry.otherText = otherText;
-          }
-
-          entry.selectedOptions = opts;
-          break;
-        }
-
-        default:
-          // agar koi unknown type aa jaye to skip, ya error bhi de sakte ho
-          continue;
-      }
-
-      normalizedAnswers.push(entry);
-    }
-
-    if (!normalizedAnswers.length) {
+    let normalizedAnswers;
+    try {
+      normalizedAnswers = normalizeSurveyAnswers(parsedAnswers, questionMap);
+    } catch (e) {
       return res
-        .status(400)
-        .json({ message: "No valid answers found for this survey." });
+        .status(e.status || 400)
+        .json({ message: e.message || "Invalid answers." });
     }
 
     const responseDoc = await SurveyResponse.create({
@@ -291,6 +330,138 @@ export const submitSurveyResponse = async (req, res) => {
     });
   } catch (err) {
     console.error("submitSurveyResponse error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ✅ NEW: SURVEY_USER submit MULTIPLE responses + single audio (bulk)
+export const submitBulkSurveyResponses = async (req, res) => {
+  try {
+    const { surveyIdOrCode } = req.params;
+    const { userCode, responses } = req.body;
+
+    if (!userCode) {
+      return res.status(400).json({ message: "userCode is required." });
+    }
+
+    const user = await User.findOne({
+      userCode,
+      role: "SURVEY_USER",
+      isActive: true,
+    }).lean();
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "Active SURVEY_USER not found for this userCode." });
+    }
+
+    const survey = await findSurveyByIdOrCode(surveyIdOrCode);
+    if (!survey) {
+      return res.status(404).json({ message: "Survey not found." });
+    }
+
+    if (!req.file || !req.file.path) {
+      return res
+        .status(400)
+        .json({ message: "Audio recording (audio) is required." });
+    }
+
+    // responses: JSON string of array
+    let parsedResponses;
+    try {
+      parsedResponses = JSON.parse(responses || "[]");
+    } catch (e) {
+      return res
+        .status(400)
+        .json({ message: "responses must be a valid JSON array." });
+    }
+
+    if (!Array.isArray(parsedResponses) || !parsedResponses.length) {
+      return res.status(400).json({
+        message: "responses array is required and cannot be empty.",
+      });
+    }
+
+    // Questions & map ek baar nikaal lo
+    const questions = await SurveyQuestion.find({
+      survey: survey._id,
+    }).lean();
+
+    const questionMap = new Map(questions.map((q) => [String(q._id), q]));
+
+    const createdResponses = [];
+
+    // Har item ek logical SurveyResponse hoga
+    for (let i = 0; i < parsedResponses.length; i++) {
+      const item = parsedResponses[i] || {};
+      const answers = item.answers;
+
+      // per-response location parse
+      let latitudeNum;
+      let longitudeNum;
+
+      if (item.latitude !== undefined) {
+        latitudeNum = Number(item.latitude);
+        if (Number.isNaN(latitudeNum)) {
+          return res.status(400).json({
+            message: `Response index ${i}: latitude must be a valid number.`,
+          });
+        }
+      }
+
+      if (item.longitude !== undefined) {
+        longitudeNum = Number(item.longitude);
+        if (Number.isNaN(longitudeNum)) {
+          return res.status(400).json({
+            message: `Response index ${i}: longitude must be a valid number.`,
+          });
+        }
+      }
+
+      let normalizedAnswers;
+      try {
+        normalizedAnswers = normalizeSurveyAnswers(answers, questionMap);
+      } catch (e) {
+        return res
+          .status(e.status || 400)
+          .json({
+            message: `Response index ${i}: ${
+              e.message || "Invalid answers."
+            }`,
+          });
+      }
+
+      const responseDoc = await SurveyResponse.create({
+        survey: survey._id,
+        surveyCode: survey.surveyCode,
+        user: user._id,
+        userCode: user.userCode,
+        userName: user.fullName,
+        userMobile: user.mobile,
+        userRole: user.role,
+        audioUrl: req.file.path, // same audio for all in this bulk
+        latitude: latitudeNum,
+        longitude: longitudeNum,
+        isCompleted: true,
+        answers: normalizedAnswers,
+        approvalStatus: APPROVAL_STATUS.PENDING,
+        isApproved: false,
+        approvedBy: null,
+      });
+
+      createdResponses.push({
+        index: i,
+        responseId: responseDoc._id,
+      });
+    }
+
+    return res.status(201).json({
+      message: "Bulk survey responses submitted successfully",
+      createdResponses,
+    });
+  } catch (err) {
+    console.error("submitBulkSurveyResponses error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

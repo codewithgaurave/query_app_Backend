@@ -13,6 +13,7 @@ import {
 } from "../controllers/surveyController.js";
 import {
   submitSurveyResponse,
+  submitBulkSurveyResponses, // ✅ NEW
   listSurveyResponses,
   listUserSurveySummary,
   adminSurveyResponseSummary,
@@ -118,11 +119,18 @@ router.get(
 // SURVEY_USER app me: ?userCode=USR-XXXX bhejoge to punch-in + assignment check hoga
 router.get("/:surveyIdOrCode", getSurveyWithQuestions);
 
-// ✅ SURVEY_USER submit responses + audio (userCode based, no token)
+// ✅ SURVEY_USER submit SINGLE response + audio (userCode based, no token)
 router.post(
   "/:surveyIdOrCode/respond",
   uploadSurveyAudio,
   submitSurveyResponse
+);
+
+// ✅ SURVEY_USER submit MULTIPLE responses (bulk) + single audio
+router.post(
+  "/:surveyIdOrCode/respond/bulk",
+  uploadSurveyAudio,
+  submitBulkSurveyResponses
 );
 
 // ✅ Admin: list all responses for a survey
