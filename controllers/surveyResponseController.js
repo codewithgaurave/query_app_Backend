@@ -96,9 +96,10 @@ export const submitSurveyResponse = async (req, res) => {
         .json({ message: "answers array is required and cannot be empty." });
     }
 
+    // ❗ isActive filter hata diya, taaki koi question skip na ho
     const questions = await SurveyQuestion.find({
       survey: survey._id,
-      isActive: true,
+      // isActive: true,
     }).lean();
 
     const questionMap = new Map(questions.map((q) => [String(q._id), q]));
@@ -108,7 +109,13 @@ export const submitSurveyResponse = async (req, res) => {
     for (const a of parsedAnswers) {
       const qId = String(a.questionId || "");
       const q = questionMap.get(qId);
-      if (!q) continue;
+
+      // Pehle silently skip kar rahe the, ab proper error denge:
+      if (!q) {
+        return res.status(400).json({
+          message: `Invalid questionId "${qId}" for this survey.`,
+        });
+      }
 
       const entry = {
         question: q._id,
@@ -245,6 +252,7 @@ export const submitSurveyResponse = async (req, res) => {
         }
 
         default:
+          // agar koi unknown type aa jaye to skip, ya error bhi de sakte ho
           continue;
       }
 
