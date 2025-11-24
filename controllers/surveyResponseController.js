@@ -24,6 +24,159 @@ const findSurveyByIdOrCode = async (surveyIdOrCode) => {
 };
 
 /**
+ * 🔸 COMMON HELPER: ek userCode ke liye summary build kare
+ *  - isi format me data banega jo tumne sample me diya hai
+ */
+const buildUserSurveySummary = async (userCode) => {
+  // 1) Base user info
+  const user = await User.findOne({ userCode }).lean();
+
+  // 2) User ke sare responses + approval + location
+  const responses = await SurveyResponse.find(
+    { userCode },
+    {
+      survey: 1,
+      surveyCode: 1,
+      audioUrl: 1,
+      answers: 1,
+      isCompleted: 1,
+      isApproved: 1,
+      approvalStatus: 1,
+      approvedBy: 1,
+      approvedAt: 1,
+      updatedAt: 1,
+      createdAt: 1,
+      latitude: 1,
+      longitude: 1,
+    }
+  )
+    .sort({ createdAt: -1 })
+    .lean();
+
+  if (!responses.length) {
+    return {
+      user: user
+        ? {
+            userCode,
+            userName: user.fullName,
+            userMobile: user.mobile,
+            role: user.role,
+          }
+        : { userCode },
+      surveys: [],
+    };
+  }
+
+  // 3) Approvers ka map
+  const approverIdSet = new Set(
+    responses
+      .map((r) => (r.approvedBy ? String(r.approvedBy) : null))
+      .filter(Boolean)
+  );
+  const approverIds = Array.from(approverIdSet);
+
+  let approverMap = new Map();
+  if (approverIds.length > 0) {
+    const approvers = await User.find(
+      { _id: { $in: approverIds } },
+      { fullName: 1, userCode: 1 }
+    ).lean();
+
+    approverMap = new Map(approvers.map((u) => [String(u._id), u]));
+  }
+
+  // 4) Survey details
+  const surveyIdSet = new Set(responses.map((r) => String(r.survey)));
+  const surveyIds = Array.from(surveyIdSet);
+
+  const surveys = await Survey.find(
+    { _id: { $in: surveyIds } },
+    {
+      name: 1,
+      surveyCode: 1,
+      description: 1,
+      status: 1,
+    }
+  ).lean();
+
+  const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
+
+  // 5) Group by survey
+  const grouped = new Map();
+
+  for (const r of responses) {
+    const key = String(r.survey);
+    const s = surveyMap.get(key);
+    if (!s) continue;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        surveyId: s._id,
+        surveyCode: s.surveyCode,
+        name: s.name,
+        description: s.description,
+        status: s.status,
+        responses: [],
+      });
+    }
+
+    const answers = (r.answers || []).map((a) => ({
+      questionId: a.question,
+      questionText: a.questionText,
+      questionType: a.questionType,
+      answerText: a.answerText,
+      selectedOptions: a.selectedOptions,
+      rating: a.rating,
+      otherText: a.otherText,
+    }));
+
+    const approver =
+      r.approvedBy ? approverMap.get(String(r.approvedBy)) : null;
+
+    const approvalTime =
+      r.approvedAt ||
+      (r.isApproved ? r.updatedAt : null) ||
+      null;
+
+    grouped.get(key).responses.push({
+      responseId: r._id,
+      audioUrl: r.audioUrl,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      isCompleted: r.isCompleted,
+      isApproved: r.isApproved,
+      approvalStatus: r.approvalStatus,
+      approvedBy: r.approvedBy || null,
+      approvedByName: approver ? approver.fullName : null,
+      approvedByUserCode: approver ? approver.userCode : null,
+      approvedAt: approvalTime,
+      createdAt: r.createdAt,
+      answers,
+    });
+  }
+
+  // 6) Sort surveys by last response createdAt
+  const surveysResult = Array.from(grouped.values()).sort((a, b) => {
+    const lastA = a.responses[0]?.createdAt || 0;
+    const lastB = b.responses[0]?.createdAt || 0;
+    return lastB - lastA;
+  });
+
+  // 7) Final object
+  return {
+    user: user
+      ? {
+          userCode,
+          userName: user.fullName,
+          userMobile: user.mobile,
+          role: user.role,
+        }
+      : { userCode },
+    surveys: surveysResult,
+  };
+};
+
+/**
  * ✅ Helper: answers ko validate + normalize kare
  */
 const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
@@ -502,6 +655,7 @@ export const listSurveyResponses = async (req, res) => {
   }
 };
 
+// ✅ User summary using common helper
 export const listUserSurveySummary = async (req, res) => {
   try {
     const { userCode } = req.params;
@@ -510,144 +664,8 @@ export const listUserSurveySummary = async (req, res) => {
       return res.status(400).json({ message: "userCode is required." });
     }
 
-    const user = await User.findOne({ userCode }).lean();
-
-    const responses = await SurveyResponse.find(
-      { userCode },
-      {
-        survey: 1,
-        surveyCode: 1,
-        audioUrl: 1,
-        answers: 1,
-        isCompleted: 1,
-        isApproved: 1,
-        approvalStatus: 1,
-        approvedBy: 1,
-        approvedAt: 1,
-        updatedAt: 1,
-        createdAt: 1,
-        latitude: 1,
-        longitude: 1,
-      }
-    )
-      .sort({ createdAt: -1 })
-      .lean();
-
-    if (!responses.length) {
-      return res.json({
-        user: user
-          ? {
-              userCode,
-              userName: user.fullName,
-              userMobile: user.mobile,
-              role: user.role,
-            }
-          : { userCode },
-        surveys: [],
-      });
-    }
-
-    const approverIdSet = new Set(
-      responses
-        .map((r) => (r.approvedBy ? String(r.approvedBy) : null))
-        .filter(Boolean)
-    );
-    const approverIds = Array.from(approverIdSet);
-
-    let approverMap = new Map();
-    if (approverIds.length > 0) {
-      const approvers = await User.find(
-        { _id: { $in: approverIds } },
-        { fullName: 1, userCode: 1 }
-      ).lean();
-
-      approverMap = new Map(approvers.map((u) => [String(u._id), u]));
-    }
-
-    const surveyIdSet = new Set(responses.map((r) => String(r.survey)));
-    const surveyIds = Array.from(surveyIdSet);
-
-    const surveys = await Survey.find(
-      { _id: { $in: surveyIds } },
-      {
-        name: 1,
-        surveyCode: 1,
-        description: 1,
-        status: 1,
-      }
-    ).lean();
-
-    const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
-    const grouped = new Map();
-
-    for (const r of responses) {
-      const key = String(r.survey);
-      const s = surveyMap.get(key);
-      if (!s) continue;
-
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          surveyId: s._id,
-          surveyCode: s.surveyCode,
-          name: s.name,
-          description: s.description,
-          status: s.status,
-          responses: [],
-        });
-      }
-
-      const answers = (r.answers || []).map((a) => ({
-        questionId: a.question,
-        questionText: a.questionText,
-        questionType: a.questionType,
-        answerText: a.answerText,
-        selectedOptions: a.selectedOptions,
-        rating: a.rating,
-        otherText: a.otherText,
-      }));
-
-      const approver =
-        r.approvedBy ? approverMap.get(String(r.approvedBy)) : null;
-
-      const approvalTime =
-        r.approvedAt ||
-        (r.isApproved ? r.updatedAt : null) ||
-        null;
-
-      grouped.get(key).responses.push({
-        responseId: r._id,
-        audioUrl: r.audioUrl,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        isCompleted: r.isCompleted,
-        isApproved: r.isApproved,
-        approvalStatus: r.approvalStatus,
-        approvedBy: r.approvedBy || null,
-        approvedByName: approver ? approver.fullName : null,
-        approvedByUserCode: approver ? approver.userCode : null,
-        approvedAt: approvalTime,
-        createdAt: r.createdAt,
-        answers,
-      });
-    }
-
-    const surveysResult = Array.from(grouped.values()).sort((a, b) => {
-      const lastA = a.responses[0]?.createdAt || 0;
-      const lastB = b.responses[0]?.createdAt || 0;
-      return lastB - lastA;
-    });
-
-    return res.json({
-      user: user
-        ? {
-            userCode,
-            userName: user.fullName,
-            userMobile: user.mobile,
-            role: user.role,
-          }
-        : { userCode },
-      surveys: surveysResult,
-    });
+    const data = await buildUserSurveySummary(userCode);
+    return res.json(data);
   } catch (err) {
     console.error("listUserSurveySummary error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -923,7 +941,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
   }
 };
 
-// ✅ PUBLIC (NO AUTH): set approvalStatus
+// ✅ PUBLIC (NO AUTH): set approvalStatus and return full user summary
 export const publicSetSurveyResponseApproval = async (req, res) => {
   try {
     const { responseId } = req.params;
@@ -951,7 +969,6 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
 
     const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
 
-    // NOTE: yeh route public hai, isliye approver track nahi kar paenge jab tak auth nahi lagate.
     const update = {
       approvalStatus,
       isApproved,
@@ -989,10 +1006,14 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
       return res.status(404).json({ message: "Survey response not found." });
     }
 
-    return res.json({
-      message: `Response status set to ${approvalStatus}`,
-      response: updated,
-    });
+    // 🔥 Yahi se tumko woh exact structure milega:
+    // {
+    //   user: {...},
+    //   surveys: [...]
+    // }
+    const summary = await buildUserSurveySummary(updated.userCode);
+
+    return res.json(summary);
   } catch (err) {
     console.error("publicSetSurveyResponseApproval error:", err);
     return res.status(500).json({ message: "Server error" });
