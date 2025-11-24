@@ -1,6 +1,7 @@
 // controllers/surveyResponseController.js
 import mongoose from "mongoose";
 import Survey from "../models/Survey.js";
+import SurveyDashboardPin from "../models/SurveyDashboardPin.js"; 
 import SurveyQuestion from "../models/SurveyQuestion.js";
 import SurveyResponse, {
   APPROVAL_STATUS,
@@ -1052,3 +1053,165 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
   }
 };
 
+/**
+ * ⭐ PUBLIC: Pin a question to dashboard
+ * body: { surveyId, questionId }
+ */
+export const publicPinQuestionToDashboard = async (req, res) => {
+  try {
+    const { surveyId, questionId } = req.body || {};
+
+    if (!surveyId || !questionId) {
+      return res
+        .status(400)
+        .json({ message: "surveyId and questionId are required." });
+    }
+
+    if (
+      !mongoose.Types.ObjectId.isValid(surveyId) ||
+      !mongoose.Types.ObjectId.isValid(questionId)
+    ) {
+      return res
+        .status(400)
+        .json({ message: "surveyId or questionId is invalid." });
+    }
+
+    const survey = await Survey.findById(surveyId).lean();
+    if (!survey) {
+      return res.status(404).json({ message: "Survey not found." });
+    }
+
+    const question = await SurveyQuestion.findOne({
+      _id: questionId,
+      survey: survey._id,
+    }).lean();
+
+    if (!question) {
+      return res
+        .status(404)
+        .json({ message: "Question not found for this survey." });
+    }
+
+    // already pinned?
+    const existing = await SurveyDashboardPin.findOne({
+      survey: survey._id,
+      question: question._id,
+    }).lean();
+
+    if (existing) {
+      return res.json({
+        message: "Question already pinned to dashboard.",
+        pin: existing,
+      });
+    }
+
+    const pin = await SurveyDashboardPin.create({
+      survey: survey._id,
+      surveyCode: survey.surveyCode,
+      surveyName: survey.name,
+      question: question._id,
+      questionText: question.questionText,
+    });
+
+    return res.status(201).json({
+      message: "Question pinned to dashboard.",
+      pin,
+    });
+  } catch (err) {
+    console.error("publicPinQuestionToDashboard error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Helper: ek pinned question ke liye stats banao
+ */
+const buildPinnedQuestionStats = async (surveyId, questionId) => {
+  const responses = await SurveyResponse.find(
+    {
+      survey: surveyId,
+      "answers.question": questionId,
+    },
+    { answers: 1, createdAt: 1 }
+  ).lean();
+
+  let total = 0;
+  const counts = {};
+  let lastResponseAt = null;
+
+  responses.forEach((r) => {
+    if (!lastResponseAt || r.createdAt > lastResponseAt) {
+      lastResponseAt = r.createdAt;
+    }
+
+    (r.answers || []).forEach((a) => {
+      if (String(a.question) !== String(questionId)) return;
+
+      // same logic as FE buildQuestionStats: OPEN_ENDED skip
+      if (a.questionType === "OPEN_ENDED") return;
+
+      if (a.questionType === "RATING") {
+        const label =
+          typeof a.rating === "number" ? String(a.rating) : "No Rating";
+        counts[label] = (counts[label] || 0) + 1;
+        total += 1;
+      } else {
+        const opts =
+          a.selectedOptions && a.selectedOptions.length
+            ? a.selectedOptions
+            : ["No Answer"];
+        opts.forEach((opt) => {
+          counts[opt] = (counts[opt] || 0) + 1;
+          total += 1;
+        });
+      }
+    });
+  });
+
+  const options = Object.entries(counts).map(([label, count]) => ({
+    label,
+    count,
+    percent: total ? (count * 100) / total : 0,
+  }));
+
+  return { total, options, lastResponseAt };
+};
+
+/**
+ * ⭐ PUBLIC: Get all pinned questions + analytics
+ * Response:
+ * { pins: [ { pinId, surveyId, surveyCode, surveyName, questionId, questionText, total, options, lastResponseAt } ] }
+ */
+export const publicListDashboardPinnedQuestions = async (req, res) => {
+  try {
+    const pins = await SurveyDashboardPin.find({})
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!pins.length) {
+      return res.json({ pins: [] });
+    }
+
+    const statsArr = await Promise.all(
+      pins.map((p) => buildPinnedQuestionStats(p.survey, p.question))
+    );
+
+    const result = pins.map((p, idx) => ({
+      pinId: p._id,
+      surveyId: p.survey,
+      surveyCode: p.surveyCode,
+      surveyName: p.surveyName,
+      questionId: p.question,
+      questionText: p.questionText,
+      total: statsArr[idx].total,
+      options: statsArr[idx].options,
+      lastResponseAt: statsArr[idx].lastResponseAt,
+      createdAt: p.createdAt,
+    }));
+
+    return res.json({ pins: result });
+  } catch (err) {
+    console.error("publicListDashboardPinnedQuestions error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};

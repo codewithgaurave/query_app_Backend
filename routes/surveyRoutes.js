@@ -21,6 +21,8 @@ import {
   // ⬇️ NEW PUBLIC CONTROLLERS
   publicSurveyResponsesWithApproval,
   publicSetSurveyResponseApproval,
+    publicPinQuestionToDashboard,       
+  publicListDashboardPinnedQuestions,  
 } from "../controllers/surveyResponseController.js";
 import { requireAuth } from "../middleware/auth.js";
 import { uploadSurveyAudio } from "../config/cloudinary.js";
@@ -151,6 +153,15 @@ router.patch(
   requireAuth,
   requireQualityEngineerOnly,
   approveSurveyResponse
+);
+
+// ⭐ PUBLIC: pin a question to dashboard
+router.post("/public/dashboard/pin", publicPinQuestionToDashboard);
+
+// ⭐ PUBLIC: list pinned questions with analytics (dashboard)
+router.get(
+  "/public/dashboard/pins",
+  publicListDashboardPinnedQuestions
 );
 
 export default router;
