@@ -23,6 +23,7 @@ import {
   publicSetSurveyResponseApproval,
     publicPinQuestionToDashboard,       
   publicListDashboardPinnedQuestions,  
+    publicDeleteDashboardPinnedQuestion, 
 } from "../controllers/surveyResponseController.js";
 import { requireAuth } from "../middleware/auth.js";
 import { uploadSurveyAudio } from "../config/cloudinary.js";
@@ -162,6 +163,12 @@ router.post("/public/dashboard/pin", publicPinQuestionToDashboard);
 router.get(
   "/public/dashboard/pins",
   publicListDashboardPinnedQuestions
+);
+
+// ⭐ PUBLIC: delete a pinned question from dashboard
+router.delete(
+  "/public/dashboard/pins/:pinId",
+  publicDeleteDashboardPinnedQuestion
 );
 
 export default router;

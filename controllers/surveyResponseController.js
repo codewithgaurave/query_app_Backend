@@ -1215,3 +1215,37 @@ export const publicListDashboardPinnedQuestions = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+
+/**
+ * ⭐ PUBLIC: Delete a pinned question from dashboard
+ * Route: DELETE /api/surveys/public/dashboard/pins/:pinId
+ */
+export const publicDeleteDashboardPinnedQuestion = async (req, res) => {
+  try {
+    const { pinId } = req.params;
+
+    if (!pinId || !mongoose.Types.ObjectId.isValid(pinId)) {
+      return res
+        .status(400)
+        .json({ message: "Valid pinId is required." });
+    }
+
+    const deleted = await SurveyDashboardPin.findByIdAndDelete(pinId).lean();
+
+    if (!deleted) {
+      return res
+        .status(404)
+        .json({ message: "Pinned question not found." });
+    }
+
+    return res.json({
+      message: "Pinned question removed from dashboard.",
+      pin: deleted,
+    });
+  } catch (err) {
+    console.error("publicDeleteDashboardPinnedQuestion error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
