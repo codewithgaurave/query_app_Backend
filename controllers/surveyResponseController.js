@@ -2,9 +2,7 @@
 import mongoose from "mongoose";
 import Survey from "../models/Survey.js";
 import SurveyQuestion from "../models/SurveyQuestion.js";
-import SurveyResponse, {
-  APPROVAL_STATUS,
-} from "../models/SurveyResponse.js";
+import SurveyResponse, { APPROVAL_STATUS } from "../models/SurveyResponse.js";
 import User from "../models/User.js";
 
 const VALID_QUESTION_TYPES = [
@@ -27,9 +25,6 @@ const findSurveyByIdOrCode = async (surveyIdOrCode) => {
 
 /**
  * ✅ Helper: answers ko validate + normalize kare
- *  - parsedAnswers: FE se aaya array
- *  - questionMap: Map(questionId -> questionDoc)
- *  -> agar kuch galat hua to error throw karega { status, message }
  */
 const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
   if (!Array.isArray(parsedAnswers) || !parsedAnswers.length) {
@@ -56,7 +51,6 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
       questionType: q.type,
     };
 
-    // "Other" option related flags from question
     const hasOther = !!q.enableOtherOption;
     const otherLabel = (q.otherOptionLabel || "Other").trim();
 
@@ -205,7 +199,6 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
       }
 
       default: {
-        // unknown type => ignore
         continue;
       }
     }
@@ -255,7 +248,6 @@ export const submitSurveyResponse = async (req, res) => {
         .json({ message: "Audio recording (audio) is required." });
     }
 
-    // ✅ Location parse (optional)
     let latitudeNum;
     let longitudeNum;
 
@@ -279,7 +271,6 @@ export const submitSurveyResponse = async (req, res) => {
 
     let parsedAnswers;
     try {
-      // answers yaha string aa rha hai (multipart/form-data), isliye JSON.parse
       parsedAnswers = JSON.parse(answers || "[]");
     } catch (e) {
       return res
@@ -287,10 +278,8 @@ export const submitSurveyResponse = async (req, res) => {
         .json({ message: "answers must be a valid JSON array." });
     }
 
-    // ❗ isActive filter hata diya, taaki koi question skip na ho
     const questions = await SurveyQuestion.find({
       survey: survey._id,
-      // isActive: true,
     }).lean();
 
     const questionMap = new Map(questions.map((q) => [String(q._id), q]));
@@ -313,15 +302,14 @@ export const submitSurveyResponse = async (req, res) => {
       userMobile: user.mobile,
       userRole: user.role,
       audioUrl: req.file.path,
-      // ✅ location (optional)
       latitude: latitudeNum,
       longitude: longitudeNum,
       isCompleted: true,
       answers: normalizedAnswers,
-      // ✅ approval defaults
       approvalStatus: APPROVAL_STATUS.PENDING,
       isApproved: false,
       approvedBy: null,
+      approvedAt: null,
     });
 
     return res.status(201).json({
@@ -334,7 +322,7 @@ export const submitSurveyResponse = async (req, res) => {
   }
 };
 
-// ✅ NEW: SURVEY_USER submit MULTIPLE responses + single audio (bulk)
+// ✅ MULTIPLE responses + single audio (bulk)
 export const submitBulkSurveyResponses = async (req, res) => {
   try {
     const { surveyIdOrCode } = req.params;
@@ -367,7 +355,6 @@ export const submitBulkSurveyResponses = async (req, res) => {
         .json({ message: "Audio recording (audio) is required." });
     }
 
-    // responses: JSON string of array
     let parsedResponses;
     try {
       parsedResponses = JSON.parse(responses || "[]");
@@ -383,7 +370,6 @@ export const submitBulkSurveyResponses = async (req, res) => {
       });
     }
 
-    // Questions & map ek baar nikaal lo
     const questions = await SurveyQuestion.find({
       survey: survey._id,
     }).lean();
@@ -392,12 +378,10 @@ export const submitBulkSurveyResponses = async (req, res) => {
 
     const createdResponses = [];
 
-    // Har item ek logical SurveyResponse hoga
     for (let i = 0; i < parsedResponses.length; i++) {
       const item = parsedResponses[i] || {};
       const answers = item.answers;
 
-      // per-response location parse
       let latitudeNum;
       let longitudeNum;
 
@@ -440,7 +424,7 @@ export const submitBulkSurveyResponses = async (req, res) => {
         userName: user.fullName,
         userMobile: user.mobile,
         userRole: user.role,
-        audioUrl: req.file.path, // same audio for all in this bulk
+        audioUrl: req.file.path,
         latitude: latitudeNum,
         longitude: longitudeNum,
         isCompleted: true,
@@ -448,6 +432,7 @@ export const submitBulkSurveyResponses = async (req, res) => {
         approvalStatus: APPROVAL_STATUS.PENDING,
         isApproved: false,
         approvedBy: null,
+        approvedAt: null,
       });
 
       createdResponses.push({
@@ -494,8 +479,8 @@ export const listSurveyResponses = async (req, res) => {
         isApproved: 1,
         approvalStatus: 1,
         approvedBy: 1,
+        approvedAt: 1,
         createdAt: 1,
-        // ✅ location fields
         latitude: 1,
         longitude: 1,
       }
@@ -525,10 +510,8 @@ export const listUserSurveySummary = async (req, res) => {
       return res.status(400).json({ message: "userCode is required." });
     }
 
-    // ---- 1) Base user info ----
     const user = await User.findOne({ userCode }).lean();
 
-    // ---- 2) User ke sare responses fetch + approval fields + location ----
     const responses = await SurveyResponse.find(
       { userCode },
       {
@@ -540,12 +523,9 @@ export const listUserSurveySummary = async (req, res) => {
         isApproved: 1,
         approvalStatus: 1,
         approvedBy: 1,
-        // ✅ approval time (agar schema me ho)
         approvedAt: 1,
-        // ✅ fallback ke liye updatedAt bhi
         updatedAt: 1,
         createdAt: 1,
-        // ✅ location fields
         latitude: 1,
         longitude: 1,
       }
@@ -553,7 +533,6 @@ export const listUserSurveySummary = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // Agar koi response hi nahi mila
     if (!responses.length) {
       return res.json({
         user: user
@@ -568,7 +547,6 @@ export const listUserSurveySummary = async (req, res) => {
       });
     }
 
-    // ---- 3) Approver users ka map bana lo (approvedBy se) ----
     const approverIdSet = new Set(
       responses
         .map((r) => (r.approvedBy ? String(r.approvedBy) : null))
@@ -583,12 +561,9 @@ export const listUserSurveySummary = async (req, res) => {
         { fullName: 1, userCode: 1 }
       ).lean();
 
-      approverMap = new Map(
-        approvers.map((u) => [String(u._id), u])
-      );
+      approverMap = new Map(approvers.map((u) => [String(u._id), u]));
     }
 
-    // ---- 4) Survey details fetch ----
     const surveyIdSet = new Set(responses.map((r) => String(r.survey)));
     const surveyIds = Array.from(surveyIdSet);
 
@@ -603,8 +578,6 @@ export const listUserSurveySummary = async (req, res) => {
     ).lean();
 
     const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
-
-    // ---- 5) Group by survey ----
     const grouped = new Map();
 
     for (const r of responses) {
@@ -623,7 +596,6 @@ export const listUserSurveySummary = async (req, res) => {
         });
       }
 
-      // Q&A normalize
       const answers = (r.answers || []).map((a) => ({
         questionId: a.question,
         questionText: a.questionText,
@@ -634,14 +606,9 @@ export const listUserSurveySummary = async (req, res) => {
         otherText: a.otherText,
       }));
 
-      // ✅ approver detail resolve
       const approver =
         r.approvedBy ? approverMap.get(String(r.approvedBy)) : null;
 
-      // ✅ approval time decide:
-      //    - agar approvedAt hai to vo
-      //    - warna agar isApproved true hai to updatedAt
-      //    - warna null
       const approvalTime =
         r.approvedAt ||
         (r.isApproved ? r.updatedAt : null) ||
@@ -650,38 +617,26 @@ export const listUserSurveySummary = async (req, res) => {
       grouped.get(key).responses.push({
         responseId: r._id,
         audioUrl: r.audioUrl,
-
-        // ✅ location per response
         latitude: r.latitude,
         longitude: r.longitude,
-
         isCompleted: r.isCompleted,
         isApproved: r.isApproved,
         approvalStatus: r.approvalStatus,
-
-        // ✅ raw id bhi bhej rahe hain (agar kahin chahiye ho)
         approvedBy: r.approvedBy || null,
-
-        // ✅ human readable approver info
         approvedByName: approver ? approver.fullName : null,
         approvedByUserCode: approver ? approver.userCode : null,
-
-        // ✅ kab verify kiya
         approvedAt: approvalTime,
-
         createdAt: r.createdAt,
         answers,
       });
     }
 
-    // ---- 6) Surveys ko last response ke time se sort karo ----
     const surveysResult = Array.from(grouped.values()).sort((a, b) => {
       const lastA = a.responses[0]?.createdAt || 0;
       const lastB = b.responses[0]?.createdAt || 0;
       return lastB - lastA;
     });
 
-    // ---- 7) Response return ----
     return res.json({
       user: user
         ? {
@@ -698,7 +653,6 @@ export const listUserSurveySummary = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
-
 
 // ✅ Admin summary — har survey pe kitne responses + kis user ne diye
 export const adminSurveyResponseSummary = async (req, res) => {
@@ -771,7 +725,7 @@ export const adminSurveyResponseSummary = async (req, res) => {
   }
 };
 
-// ✅ NEW: QUALITY_ENGINEER sets approvalStatus (5 options)
+// ✅ QUALITY_ENGINEER sets approvalStatus (authenticated)
 export const approveSurveyResponse = async (req, res) => {
   try {
     const userJwt = req.user;
@@ -800,7 +754,7 @@ export const approveSurveyResponse = async (req, res) => {
     }
 
     const allowedStatuses = Object.values(APPROVAL_STATUS).filter(
-      (s) => s !== APPROVAL_STATUS.PENDING // QE se usually final status
+      (s) => s !== APPROVAL_STATUS.PENDING
     );
 
     if (!allowedStatuses.includes(approvalStatus)) {
@@ -813,13 +767,22 @@ export const approveSurveyResponse = async (req, res) => {
 
     const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
 
+    const update = {
+      approvalStatus,
+      isApproved,
+    };
+
+    if (isApproved) {
+      update.approvedBy = userJwt.sub;
+      update.approvedAt = new Date();
+    } else {
+      update.approvedBy = null;
+      update.approvedAt = null;
+    }
+
     const updated = await SurveyResponse.findByIdAndUpdate(
       responseId,
-      {
-        approvalStatus,
-        isApproved,
-        approvedBy: isApproved ? userJwt.sub : null,
-      },
+      update,
       {
         new: true,
         projection: {
@@ -832,6 +795,7 @@ export const approveSurveyResponse = async (req, res) => {
           isApproved: 1,
           approvalStatus: 1,
           approvedBy: 1,
+          approvedAt: 1,
           createdAt: 1,
         },
       }
@@ -851,11 +815,7 @@ export const approveSurveyResponse = async (req, res) => {
   }
 };
 
-/**
- * ✅ NEW PUBLIC (NO AUTH):
- * - Sabhi surveys ke saare responses
- * - Kis user ne kiya, answers, audio, approval info sab
- */
+// ✅ PUBLIC: sabhi responses with approval info
 export const publicSurveyResponsesWithApproval = async (req, res) => {
   try {
     const responses = await SurveyResponse.find(
@@ -873,8 +833,8 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         isApproved: 1,
         approvalStatus: 1,
         approvedBy: 1,
+        approvedAt: 1,
         createdAt: 1,
-        // ✅ location fields
         latitude: 1,
         longitude: 1,
       }
@@ -901,7 +861,6 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
     ).lean();
 
     const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
-
     const grouped = new Map();
 
     for (const r of responses) {
@@ -939,13 +898,13 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         userMobile: r.userMobile,
         userRole: r.userRole,
         audioUrl: r.audioUrl,
-        // ✅ location per response
         latitude: r.latitude,
         longitude: r.longitude,
         isCompleted: r.isCompleted,
         isApproved: r.isApproved,
         approvalStatus: r.approvalStatus,
         approvedBy: r.approvedBy,
+        approvedAt: r.approvedAt,
         createdAt: r.createdAt,
         answers,
       });
@@ -964,11 +923,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
   }
 };
 
-/**
- * ✅ NEW PUBLIC (NO AUTH):
- * - Set approvalStatus / reset to PENDING
- * body: { "approvalStatus": "CORRECTLY_DONE" | "NOT_ASKING_ALL_QUESTIONS" | "NOT_DOING_IT_PROPERLY" | "TAKING_FROM_FRIENDS_OR_TEAMMATE" | "FAKE_OR_EMPTY_AUDIO" | "PENDING" }
- */
+// ✅ PUBLIC (NO AUTH): set approvalStatus
 export const publicSetSurveyResponseApproval = async (req, res) => {
   try {
     const { responseId } = req.params;
@@ -996,21 +951,15 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
 
     const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
 
-    // ✅ YAHAN SE: kisne approve kiya
-    //   - baaki controllers me tum req.user?.sub use kar rahe ho, wahi pattern follow kar rahe hain
-    const approverId = req.user?.sub || null;
-
+    // NOTE: yeh route public hai, isliye approver track nahi kar paenge jab tak auth nahi lagate.
     const update = {
       approvalStatus,
       isApproved,
     };
 
     if (isApproved) {
-      // ✅ approve / verify case
-      update.approvedBy = approverId;   // 👈 Yahi field baad me approvedByName banayega
-      update.approvedAt = new Date();   // time front-end pe dikh raha hai
+      update.approvedAt = new Date();
     } else {
-      // ❌ disapprove / pending
       update.approvedBy = null;
       update.approvedAt = null;
     }
@@ -1030,7 +979,7 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
           isApproved: 1,
           approvalStatus: 1,
           approvedBy: 1,
-          approvedAt: 1,   // ⭐ ensure ye include ho
+          approvedAt: 1,
           createdAt: 1,
         },
       }

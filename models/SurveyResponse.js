@@ -99,7 +99,7 @@ const surveyResponseSchema = new mongoose.Schema(
 // fast lookup
 surveyResponseSchema.index({ survey: 1, userCode: 1 });
 
-// keep isApproved + approvedAt in sync
+// keep isApproved + approvedAt in sync ONLY on create/save
 surveyResponseSchema.pre("save", function (next) {
   const willBeApproved =
     this.approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
@@ -129,14 +129,33 @@ surveyResponseSchema.pre("save", function (next) {
   next();
 });
 
-// update hook
+// update hook – updatedAtIST set karna + (optional) approvalStatus change pe approvedAt handle
 surveyResponseSchema.pre("findOneAndUpdate", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
     hour12: true,
   });
 
+  const update = this.getUpdate() || {};
+  // timestamps string
   this.set({ updatedAtIST: istTime });
+
+  // Agar approvalStatus update aa raha hai to yahan bhi handle kar sakte hain
+  const top = update.$set || update;
+  if (top.approvalStatus) {
+    const willBeApproved =
+      top.approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+    top.isApproved = willBeApproved;
+    top.approvedAt = willBeApproved ? new Date() : null;
+
+    if (update.$set) {
+      update.$set = top;
+      this.setUpdate(update);
+    } else {
+      this.setUpdate(top);
+    }
+  }
+
   next();
 });
 
