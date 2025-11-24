@@ -16,22 +16,20 @@ const surveyQuestionSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // question type
     type: {
       type: String,
       enum: [
-        "OPEN_ENDED",   // 1
-        "MCQ_SINGLE",   // 2 (multiple choice single/multi handle via allowMultiple)
-        "RATING",       // 3
-        "LIKERT",       // 4
-        "CHECKBOX",     // 5 (multi)
-        "DROPDOWN",     // 6
-        "YES_NO",       // 7
+        "OPEN_ENDED",
+        "MCQ_SINGLE",
+        "RATING",
+        "LIKERT",
+        "CHECKBOX",
+        "DROPDOWN",
+        "YES_NO",
       ],
       required: true,
     },
 
-    // options list – MCQ / CHECKBOX / DROPDOWN / LIKERT / YES_NO
     options: [
       {
         type: String,
@@ -39,13 +37,11 @@ const surveyQuestionSchema = new mongoose.Schema(
       },
     ],
 
-    // for MCQ vs checkbox
     allowMultiple: {
       type: Boolean,
       default: false,
     },
 
-    // ⭐ NEW: "Other" option support for option-based questions
     enableOtherOption: {
       type: Boolean,
       default: false,
@@ -56,7 +52,6 @@ const surveyQuestionSchema = new mongoose.Schema(
       default: "Other",
     },
 
-    // rating config
     minRating: {
       type: Number,
       default: 1,
@@ -70,7 +65,6 @@ const surveyQuestionSchema = new mongoose.Schema(
       default: 1,
     },
 
-    // required flag
     required: {
       type: Boolean,
       default: true,
@@ -90,9 +84,36 @@ const surveyQuestionSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+
+    // ⭐ IST timestamps fields
+    createdAtIST: { type: String },
+    updatedAtIST: { type: String }
   },
   { timestamps: true }
 );
+
+// ⭐ Auto-save IST timestamp on create / update
+surveyQuestionSchema.pre("save", function (next) {
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+
+  if (!this.createdAtIST) {
+    this.createdAtIST = istTime;
+  }
+  this.updatedAtIST = istTime;
+  next();
+});
+
+surveyQuestionSchema.pre("findOneAndUpdate", function (next) {
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+  this.set({ updatedAtIST: istTime });
+  next();
+});
 
 // export default mongoose.model("SurveyQuestion", surveyQuestionSchema, "SurveyQuestions");
 export default mongoose.model("SurveyQuestion", surveyQuestionSchema);

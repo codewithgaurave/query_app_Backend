@@ -18,18 +18,12 @@ const answerSchema = new mongoose.Schema(
       required: true,
     },
     questionText: { type: String },
-    questionType: { type: String }, // OPEN_ENDED / MCQ_SINGLE / ...
+    questionType: { type: String },
 
-    // open-ended / generic text
     answerText: { type: String },
-
-    // MCQ / CHECKBOX / DROPDOWN / LIKERT / YES_NO
     selectedOptions: [{ type: String }],
 
-    // rating
     rating: { type: Number },
-
-    // ✅ "Other" option ka text
     otherText: { type: String },
   },
   { _id: false }
@@ -48,7 +42,6 @@ const surveyResponseSchema = new mongoose.Schema(
       index: true,
     },
 
-    // which user responded
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -60,29 +53,18 @@ const surveyResponseSchema = new mongoose.Schema(
     },
     userName: { type: String },
     userMobile: { type: String },
-    userRole: { type: String }, // SURVEY_USER
+    userRole: { type: String },
 
-    // audio recording URL
     audioUrl: {
       type: String,
       required: true,
     },
 
-    // ✅ NEW: user location (optional)
-    latitude: {
-      type: Number,
-    },
-    longitude: {
-      type: Number,
-    },
+    latitude: { type: Number },
+    longitude: { type: Number },
 
-    // ek response complete hai ya nahi (future ke liye useful)
-    isCompleted: {
-      type: Boolean,
-      default: true,
-    },
+    isCompleted: { type: Boolean, default: true },
 
-    // ✅ enum based approval status
     approvalStatus: {
       type: String,
       enum: Object.values(APPROVAL_STATUS),
@@ -90,7 +72,6 @@ const surveyResponseSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ✅ backward compat: true sirf tab jab CORRECTLY_DONE ho
     isApproved: {
       type: Boolean,
       default: false,
@@ -98,24 +79,46 @@ const surveyResponseSchema = new mongoose.Schema(
 
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // QUALITY_ENGINEER expected
+      ref: "User",
     },
 
     answers: [answerSchema],
+
+    // ⭐ IST timestamps
+    createdAtIST: { type: String },
+    updatedAtIST: { type: String },
   },
   { timestamps: true }
 );
 
-// index: fast queries for "iss user ne iss survey ka response diya ya nahi"
+// fast lookup
 surveyResponseSchema.index({ survey: 1, userCode: 1 });
 
-// OPTIONAL: keep isApproved in sync with approvalStatus when using .save()
+// keep isApproved in sync
 surveyResponseSchema.pre("save", function (next) {
-  if (!this.approvalStatus || this.approvalStatus === APPROVAL_STATUS.PENDING) {
-    this.isApproved = false;
-  } else {
-    this.isApproved = this.approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+  this.isApproved = this.approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+
+  if (!this.createdAtIST) {
+    this.createdAtIST = istTime;
   }
+  this.updatedAtIST = istTime;
+
+  next();
+});
+
+// update hook
+surveyResponseSchema.pre("findOneAndUpdate", function (next) {
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+
+  this.set({ updatedAtIST: istTime });
   next();
 });
 

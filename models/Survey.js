@@ -22,13 +22,11 @@ const surveySchema = new mongoose.Schema(
       trim: true,
     },
 
-    // category / type of survey
     category: {
       type: String,
       trim: true,
     },
 
-    // kisi project ya client se linked
     projectName: {
       type: String,
       trim: true,
@@ -39,7 +37,6 @@ const surveySchema = new mongoose.Schema(
       trim: true,
     },
 
-    // survey status
     status: {
       type: String,
       enum: ["DRAFT", "ACTIVE", "CLOSED"],
@@ -75,7 +72,6 @@ const surveySchema = new mongoose.Schema(
       },
     ],
 
-    // admin ne decide kiye hue question types (optional)
     allowedQuestionTypes: [
       {
         type: String,
@@ -91,7 +87,6 @@ const surveySchema = new mongoose.Schema(
       },
     ],
 
-    // ✅ NEW: survey kis kis employee (User) ko assign hai
     assignedUsers: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -109,9 +104,38 @@ const surveySchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+
+    // ⭐ for IST timestamps
+    createdAtIST: { type: String },
+    updatedAtIST: { type: String }
   },
   { timestamps: true }
 );
+
+// Auto-save IST time on create
+surveySchema.pre("save", function (next) {
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+
+  if (!this.createdAtIST) {
+    this.createdAtIST = istTime;
+  }
+  this.updatedAtIST = istTime;
+  next();
+});
+
+// Auto-update IST timestamp on update
+surveySchema.pre("findOneAndUpdate", function (next) {
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+
+  this.set({ updatedAtIST: istTime });
+  next();
+});
 
 // export default mongoose.model("Survey", surveySchema, "Surveys");
 export default mongoose.model("Survey", surveySchema);

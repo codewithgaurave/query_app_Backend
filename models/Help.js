@@ -36,16 +36,44 @@ const HelpSchema = new mongoose.Schema(
       },
     ],
 
-    // Kis admin ne last update kiya
     updatedByAdmin: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
     },
+
+    // ⭐ IST timestamps
+    createdAtIST: { type: String },
+    updatedAtIST: { type: String }
   },
   { timestamps: true }
 );
 
-// Only 1 record allowed → use fixed ID logic
+// Auto-save IST time on create
+HelpSchema.pre("save", function (next) {
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+
+  if (!this.createdAtIST) {
+    this.createdAtIST = istTime;
+  }
+  this.updatedAtIST = istTime;
+  next();
+});
+
+// Auto-update IST timestamp on update
+HelpSchema.pre("findOneAndUpdate", function (next) {
+  const istTime = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+  });
+
+  this.set({ updatedAtIST: istTime });
+  next();
+});
+
+// Only 1 record allowed → Singleton pattern
 HelpSchema.statics.getSingleton = async function () {
   let doc = await this.findOne();
   if (!doc) {
