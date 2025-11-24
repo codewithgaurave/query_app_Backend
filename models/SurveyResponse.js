@@ -154,11 +154,9 @@ surveyResponseSchema.pre("findOneAndUpdate", function (next) {
     const willBeApproved =
       approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
 
-    // isApproved hamesha approvalStatus se drive hoga
     update.$set.isApproved = willBeApproved;
 
     if (willBeApproved) {
-      // sirf tab set karo jab already explicitly set na ho
       if (
         update.$set.approvedAt === undefined &&
         update.approvedAt === undefined
@@ -166,7 +164,6 @@ surveyResponseSchema.pre("findOneAndUpdate", function (next) {
         update.$set.approvedAt = new Date();
       }
     } else {
-      // approve se koi aur status par jao to approvedAt clear
       update.$set.approvedAt = null;
     }
   }

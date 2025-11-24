@@ -794,7 +794,7 @@ export const approveSurveyResponse = async (req, res) => {
     }
 
     const allowedStatuses = Object.values(APPROVAL_STATUS).filter(
-      (s) => s !== APPROVAL_STATUS.PENDING
+      (s) => s !== APPROVAL_STATUS.PENDING // QE se usually final status
     );
 
     if (!allowedStatuses.includes(approvalStatus)) {
@@ -811,10 +811,9 @@ export const approveSurveyResponse = async (req, res) => {
       responseId,
       {
         approvalStatus,
-        // isApproved ko hook bhi set karega, but yeh harmless hai:
         isApproved,
         approvedBy: isApproved ? userJwt.sub : null,
-        // approvedAt ko hook handle karega (approvalStatus se)
+        // approvedAt + updatedAtIST hook handle karega
       },
       {
         new: true,
@@ -828,11 +827,11 @@ export const approveSurveyResponse = async (req, res) => {
           isApproved: 1,
           approvalStatus: 1,
           approvedBy: 1,
-          approvedAt: 1,    // ⭐ kab approve hua
+          approvedAt: 1,     // ⭐ kab approve hua
           createdAt: 1,
           updatedAt: 1,
           createdAtIST: 1,
-          updatedAtIST: 1,  // ⭐ IST me kab update hua
+          updatedAtIST: 1,   // ⭐ IST me last update
         },
       }
     ).lean();
@@ -850,6 +849,7 @@ export const approveSurveyResponse = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 /**
