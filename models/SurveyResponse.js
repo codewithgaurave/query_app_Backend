@@ -82,9 +82,14 @@ const surveyResponseSchema = new mongoose.Schema(
       ref: "User",
     },
 
+    // ⭐ kis time pe verify / approve hua
+    approvedAt: {
+      type: Date,
+    },
+
     answers: [answerSchema],
 
-    // ⭐ IST timestamps
+    // ⭐ IST timestamps (string form)
     createdAtIST: { type: String },
     updatedAtIST: { type: String },
   },
@@ -94,9 +99,26 @@ const surveyResponseSchema = new mongoose.Schema(
 // fast lookup
 surveyResponseSchema.index({ survey: 1, userCode: 1 });
 
-// keep isApproved in sync
+// keep isApproved + approvedAt in sync on .save()
 surveyResponseSchema.pre("save", function (next) {
-  this.isApproved = this.approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+  const willBeApproved =
+    this.approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+
+  // isApproved always derived from approvalStatus
+  this.isApproved = willBeApproved;
+
+  // agar approvalStatus change hua ho to approvedAt bhi handle karo
+  if (this.isModified("approvalStatus")) {
+    if (willBeApproved) {
+      // create ke time pe agar directly CORRECTLY_DONE aa raha hai to timestamp set kar do
+      if (!this.approvedAt) {
+        this.approvedAt = new Date();
+      }
+    } else {
+      // agar status hata rahe ho (e.g. wapas PENDING) to time clear
+      this.approvedAt = undefined;
+    }
+  }
 
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -111,7 +133,7 @@ surveyResponseSchema.pre("save", function (next) {
   next();
 });
 
-// update hook
+// update hook – yahan abhi sirf IST updatedAt string set kar rahe hain
 surveyResponseSchema.pre("findOneAndUpdate", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",

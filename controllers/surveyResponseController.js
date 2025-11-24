@@ -996,14 +996,23 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
 
     const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
 
+    // ⭐ approver ka user id (admin / reviewer)
+    //  - yeh assume kar raha hoon ki auth middleware se req.user.sub aa raha hai
+    const approverId = req.user?.sub || null;
+
     const update = {
       approvalStatus,
       isApproved,
     };
 
-    // disapprove / non-correct status -> approvedBy clear
-    if (!isApproved) {
+    if (isApproved) {
+      // ✅ approve / verify case
+      update.approvedBy = approverId;      // yahi se approvedBy null nahi rahega
+      update.approvedAt = new Date();      // kis time pe verify kiya
+    } else {
+      // ❌ disapprove / pending etc – approver clear
       update.approvedBy = null;
+      update.approvedAt = null;
     }
 
     const updated = await SurveyResponse.findByIdAndUpdate(
@@ -1021,6 +1030,7 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
           isApproved: 1,
           approvalStatus: 1,
           approvedBy: 1,
+          approvedAt: 1,   // ⭐ time bhi response me bhej rahe
           createdAt: 1,
         },
       }
