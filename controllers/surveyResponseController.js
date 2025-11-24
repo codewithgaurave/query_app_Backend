@@ -517,7 +517,6 @@ export const listSurveyResponses = async (req, res) => {
   }
 };
 
-// ✅ UPDATED: kis user ne kaun-kaun se surveys ka answer diya + detail answers
 export const listUserSurveySummary = async (req, res) => {
   try {
     const { userCode } = req.params;
@@ -526,8 +525,10 @@ export const listUserSurveySummary = async (req, res) => {
       return res.status(400).json({ message: "userCode is required." });
     }
 
+    // 1) base user
     const user = await User.findOne({ userCode }).lean();
 
+    // 2) saare responses
     const responses = await SurveyResponse.find(
       { userCode },
       {
@@ -539,8 +540,11 @@ export const listUserSurveySummary = async (req, res) => {
         isApproved: 1,
         approvalStatus: 1,
         approvedBy: 1,
+        approvedAt: 1,      // ⭐
+        updatedAt: 1,
+        updatedAtIST: 1,    // ⭐
         createdAt: 1,
-        // ✅ location fields
+        createdAtIST: 1,    // optional, agar dikhana chaho
         latitude: 1,
         longitude: 1,
       }
@@ -562,6 +566,27 @@ export const listUserSurveySummary = async (req, res) => {
       });
     }
 
+    // 3) approver map
+    const approverIdSet = new Set(
+      responses
+        .map((r) => (r.approvedBy ? String(r.approvedBy) : null))
+        .filter(Boolean)
+    );
+    const approverIds = Array.from(approverIdSet);
+
+    let approverMap = new Map();
+    if (approverIds.length > 0) {
+      const approvers = await User.find(
+        { _id: { $in: approverIds } },
+        { fullName: 1, userCode: 1 }
+      ).lean();
+
+      approverMap = new Map(
+        approvers.map((u) => [String(u._id), u])
+      );
+    }
+
+    // 4) survey details
     const surveyIdSet = new Set(responses.map((r) => String(r.survey)));
     const surveyIds = Array.from(surveyIdSet);
 
@@ -577,6 +602,7 @@ export const listUserSurveySummary = async (req, res) => {
 
     const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
 
+    // 5) group by survey
     const grouped = new Map();
 
     for (const r of responses) {
@@ -605,17 +631,38 @@ export const listUserSurveySummary = async (req, res) => {
         otherText: a.otherText,
       }));
 
+      const approver =
+        r.approvedBy ? approverMap.get(String(r.approvedBy)) : null;
+
+      // approval time:
+      const approvalTime =
+        r.approvedAt ||
+        (r.isApproved ? r.updatedAt : null) ||
+        null;
+
       grouped.get(key).responses.push({
         responseId: r._id,
         audioUrl: r.audioUrl,
-        // ✅ location per response
         latitude: r.latitude,
         longitude: r.longitude,
         isCompleted: r.isCompleted,
         isApproved: r.isApproved,
         approvalStatus: r.approvalStatus,
-        approvedBy: r.approvedBy,
+
+        // raw id
+        approvedBy: r.approvedBy || null,
+
+        // human-readable approver
+        approvedByName: approver ? approver.fullName : null,
+        approvedByUserCode: approver ? approver.userCode : null,
+
+        // kab approve hua (Date)
+        approvedAt: approvalTime,
+        // IST me last update time
+        updatedAtIST: r.updatedAtIST || null,
+
         createdAt: r.createdAt,
+        createdAtIST: r.createdAtIST || null,
         answers,
       });
     }
@@ -642,6 +689,8 @@ export const listUserSurveySummary = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+
 
 // ✅ Admin summary — har survey pe kitne responses + kis user ne diye
 export const adminSurveyResponseSummary = async (req, res) => {
@@ -715,6 +764,8 @@ export const adminSurveyResponseSummary = async (req, res) => {
 };
 
 // ✅ NEW: QUALITY_ENGINEER sets approvalStatus (5 options)
+// controllers/surveyResponseController.js
+
 export const approveSurveyResponse = async (req, res) => {
   try {
     const userJwt = req.user;
@@ -743,7 +794,7 @@ export const approveSurveyResponse = async (req, res) => {
     }
 
     const allowedStatuses = Object.values(APPROVAL_STATUS).filter(
-      (s) => s !== APPROVAL_STATUS.PENDING // QE se usually final status
+      (s) => s !== APPROVAL_STATUS.PENDING
     );
 
     if (!allowedStatuses.includes(approvalStatus)) {
@@ -760,8 +811,10 @@ export const approveSurveyResponse = async (req, res) => {
       responseId,
       {
         approvalStatus,
+        // isApproved ko hook bhi set karega, but yeh harmless hai:
         isApproved,
         approvedBy: isApproved ? userJwt.sub : null,
+        // approvedAt ko hook handle karega (approvalStatus se)
       },
       {
         new: true,
@@ -775,7 +828,11 @@ export const approveSurveyResponse = async (req, res) => {
           isApproved: 1,
           approvalStatus: 1,
           approvedBy: 1,
+          approvedAt: 1,    // ⭐ kab approve hua
           createdAt: 1,
+          updatedAt: 1,
+          createdAtIST: 1,
+          updatedAtIST: 1,  // ⭐ IST me kab update hua
         },
       }
     ).lean();
@@ -793,6 +850,7 @@ export const approveSurveyResponse = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
 
 /**
  * ✅ NEW PUBLIC (NO AUTH):
@@ -939,14 +997,21 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
 
     const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
 
+    // Agar kabhi auth laga doge to ye use ho jayega, abhi mostly null rahega
+    const approverId = req.user?.sub || null;
+
     const update = {
       approvalStatus,
       isApproved,
     };
 
-    // disapprove / non-correct status -> approvedBy clear
-    if (!isApproved) {
+    if (isApproved) {
+      update.approvedBy = approverId;
+      // approvedAt ko chaaho to yahi set karo ya hook pe chhod do
+      update.approvedAt = new Date();
+    } else {
       update.approvedBy = null;
+      update.approvedAt = null;
     }
 
     const updated = await SurveyResponse.findByIdAndUpdate(
@@ -964,7 +1029,11 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
           isApproved: 1,
           approvalStatus: 1,
           approvedBy: 1,
+          approvedAt: 1,
           createdAt: 1,
+          updatedAt: 1,
+          createdAtIST: 1,
+          updatedAtIST: 1,
         },
       }
     ).lean();
@@ -982,3 +1051,4 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+

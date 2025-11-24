@@ -129,7 +129,7 @@ surveyResponseSchema.pre("save", function (next) {
   next();
 });
 
-// update hook – updatedAtIST set karna + (optional) approvalStatus change pe approvedAt handle
+// ✅ update hook – updatedAtIST set karna + approvalStatus change pe approvedAt handle
 surveyResponseSchema.pre("findOneAndUpdate", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -137,25 +137,41 @@ surveyResponseSchema.pre("findOneAndUpdate", function (next) {
   });
 
   const update = this.getUpdate() || {};
-  // timestamps string
-  this.set({ updatedAtIST: istTime });
 
-  // Agar approvalStatus update aa raha hai to yahan bhi handle kar sakte hain
-  const top = update.$set || update;
-  if (top.approvalStatus) {
+  // ensure $set block exists
+  if (!update.$set) {
+    update.$set = {};
+  }
+
+  // ✅ string-based IST timestamp
+  update.$set.updatedAtIST = istTime;
+
+  // ✅ approvalStatus ko dekh ke isApproved + approvedAt set karo
+  const approvalStatus =
+    (update.$set && update.$set.approvalStatus) || update.approvalStatus;
+
+  if (approvalStatus) {
     const willBeApproved =
-      top.approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
-    top.isApproved = willBeApproved;
-    top.approvedAt = willBeApproved ? new Date() : null;
+      approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
 
-    if (update.$set) {
-      update.$set = top;
-      this.setUpdate(update);
+    // isApproved hamesha approvalStatus se drive hoga
+    update.$set.isApproved = willBeApproved;
+
+    if (willBeApproved) {
+      // sirf tab set karo jab already explicitly set na ho
+      if (
+        update.$set.approvedAt === undefined &&
+        update.approvedAt === undefined
+      ) {
+        update.$set.approvedAt = new Date();
+      }
     } else {
-      this.setUpdate(top);
+      // approve se koi aur status par jao to approvedAt clear
+      update.$set.approvedAt = null;
     }
   }
 
+  this.setUpdate(update);
   next();
 });
 
