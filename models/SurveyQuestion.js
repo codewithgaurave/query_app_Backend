@@ -30,6 +30,7 @@ const surveyQuestionSchema = new mongoose.Schema(
       required: true,
     },
 
+    // For MCQ / CHECKBOX / DROPDOWN / LIKERT / YES_NO
     options: [
       {
         type: String,
@@ -37,11 +38,13 @@ const surveyQuestionSchema = new mongoose.Schema(
       },
     ],
 
+    // For MCQ_SINGLE / CHECKBOX behavior
     allowMultiple: {
       type: Boolean,
       default: false,
     },
 
+    // "Other" option support
     enableOtherOption: {
       type: Boolean,
       default: false,
@@ -52,6 +55,7 @@ const surveyQuestionSchema = new mongoose.Schema(
       default: "Other",
     },
 
+    // Rating config
     minRating: {
       type: Number,
       default: 1,
@@ -85,14 +89,34 @@ const surveyQuestionSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // ⭐ Follow-up support
+    // Root question => parentQuestion = null
+    // Multiple children per (parentQuestion + parentOptionValue) allowed
+    parentQuestion: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SurveyQuestion",
+      default: null,
+      index: true,
+    },
+
+    // Which option (of parent) activates this question
+    parentOptionValue: {
+      type: String,
+      trim: true,
+    },
+
     // ⭐ IST timestamps fields
     createdAtIST: { type: String },
-    updatedAtIST: { type: String }
+    updatedAtIST: { type: String },
   },
   { timestamps: true }
 );
 
-// ⭐ Auto-save IST timestamp on create / update
+// Helpful indexes for ordering + follow-up lookups
+surveyQuestionSchema.index({ survey: 1, order: 1 });
+surveyQuestionSchema.index({ parentQuestion: 1, parentOptionValue: 1 });
+
+// Auto-save IST timestamp on create / update
 surveyQuestionSchema.pre("save", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -115,5 +139,4 @@ surveyQuestionSchema.pre("findOneAndUpdate", function (next) {
   next();
 });
 
-// export default mongoose.model("SurveyQuestion", surveyQuestionSchema, "SurveyQuestions");
 export default mongoose.model("SurveyQuestion", surveyQuestionSchema);

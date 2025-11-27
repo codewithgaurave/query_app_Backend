@@ -3,14 +3,14 @@ import crypto from "crypto";
 import mongoose from "mongoose";
 import Survey from "../models/Survey.js";
 import SurveyQuestion from "../models/SurveyQuestion.js";
-import PunchIn from "../models/PunchIn.js"; // ✅
-import User from "../models/User.js";       // ✅
+import PunchIn from "../models/PunchIn.js";
+import User from "../models/User.js";
 
 // helper: random surveyCode
 const generateSurveyCode = () =>
   "SRV-" + crypto.randomBytes(4).toString("hex").toUpperCase();
 
-// ✅ helper: aaj ka startOfDay / endOfDay nikalne ke liye (calendar day based)
+// helper: aaj ka startOfDay / endOfDay nikalne ke liye (calendar day based)
 const getTodayRange = () => {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -26,14 +26,14 @@ const getTodayRange = () => {
 const VALID_QUESTION_TYPES = [
   "OPEN_ENDED", // 1
   "MCQ_SINGLE", // 2
-  "RATING",     // 3
-  "LIKERT",     // 4
-  "CHECKBOX",   // 5
-  "DROPDOWN",   // 6
-  "YES_NO",     // 7
+  "RATING", // 3
+  "LIKERT", // 4
+  "CHECKBOX", // 5
+  "DROPDOWN", // 6
+  "YES_NO", // 7
 ];
 
-// ✅ helper: Mongo _id ya surveyCode se survey laao
+// helper: Mongo _id ya surveyCode se survey laao
 const findSurveyByIdOrCode = async (surveyIdOrCode) => {
   if (mongoose.Types.ObjectId.isValid(surveyIdOrCode)) {
     return Survey.findById(surveyIdOrCode).lean();
@@ -64,7 +64,7 @@ export const createSurvey = async (req, res) => {
       language,
       tags,
       allowedQuestionTypes,
-      // ✅ NEW: frontend se array of userIds
+      // NEW: frontend se array of userIds
       assignedUserIds,
     } = req.body;
 
@@ -78,11 +78,13 @@ export const createSurvey = async (req, res) => {
         VALID_QUESTION_TYPES.includes(t)
       );
       if (!allowedTypes.length) {
-        return res.status(400).json({ message: "Invalid allowedQuestionTypes" });
+        return res
+          .status(400)
+          .json({ message: "Invalid allowedQuestionTypes" });
       }
     }
 
-    // ✅ assigned users resolve karo
+    // assigned users resolve karo
     let assignedUsers = [];
     if (Array.isArray(assignedUserIds) && assignedUserIds.length) {
       const validIds = assignedUserIds.filter((id) =>
@@ -108,7 +110,6 @@ export const createSurvey = async (req, res) => {
         });
       }
 
-      // (optional) sirf SURVEY_USER ko assign karna ho to filter:
       assignedUsers = users.map((u) => u._id);
     }
 
@@ -130,7 +131,7 @@ export const createSurvey = async (req, res) => {
       tags,
       allowedQuestionTypes: allowedTypes,
       createdByAdmin: adminId,
-      assignedUsers, // ✅ NEW
+      assignedUsers,
     });
 
     return res.status(201).json({
@@ -173,7 +174,7 @@ export const updateSurvey = async (req, res) => {
       tags,
       allowedQuestionTypes,
       isActive,
-      // ✅ NEW: updated list of userIds (full replacement)
+      // updated list of userIds (full replacement)
       assignedUserIds,
     } = req.body;
 
@@ -188,7 +189,8 @@ export const updateSurvey = async (req, res) => {
     if (typeof description === "string") update.description = description;
     if (typeof category === "string") update.category = category;
     if (typeof projectName === "string") update.projectName = projectName;
-    if (typeof targetAudience === "string") update.targetAudience = targetAudience;
+    if (typeof targetAudience === "string")
+      update.targetAudience = targetAudience;
     if (typeof status === "string") update.status = status;
     if (startDate !== undefined) update.startDate = startDate;
     if (endDate !== undefined) update.endDate = endDate;
@@ -212,10 +214,9 @@ export const updateSurvey = async (req, res) => {
       update.allowedQuestionTypes = filtered;
     }
 
-    // ✅ NEW: assignment update (full replacement)
+    // assignment update (full replacement)
     if (Array.isArray(assignedUserIds)) {
       if (!assignedUserIds.length) {
-        // agar empty array bheje to sab assignment hata do
         update.assignedUsers = [];
       } else {
         const validIds = assignedUserIds.filter((id) =>
@@ -276,10 +277,7 @@ export const deleteSurvey = async (req, res) => {
       return res.status(404).json({ message: "Survey not found" });
     }
 
-    // pehle saare questions delete karo
     await SurveyQuestion.deleteMany({ survey: survey._id });
-
-    // phir survey delete karo
     await Survey.findByIdAndDelete(survey._id);
 
     return res.json({
@@ -292,6 +290,8 @@ export const deleteSurvey = async (req, res) => {
 };
 
 // ✅ Admin adds a question to a survey (by _id or surveyCode)
+// Root question -> koi bhi allowed type
+// Follow-up question (parentQuestionId set) -> ALWAYS OPEN_ENDED + multiple allowed per option
 export const addSurveyQuestion = async (req, res) => {
   try {
     const adminId = req.user?.sub;
@@ -311,19 +311,25 @@ export const addSurveyQuestion = async (req, res) => {
       required,
       order,
       helpText,
-      // ⭐ NEW from FE
+      // "Other" support
       enableOtherOption,
       otherOptionLabel,
+      // Follow-up mapping
+      parentQuestionId,
+      parentOptionValue,
     } = req.body;
 
-    if (!questionText || !type) {
+    if (!questionText) {
       return res
         .status(400)
-        .json({ message: "questionText and type are required." });
+        .json({ message: "questionText is required." });
     }
 
-    if (!VALID_QUESTION_TYPES.includes(type)) {
-      return res.status(400).json({ message: "Invalid question type." });
+    // Root questions ke liye type required; follow-up ke liye hum force OPEN_ENDED karenge
+    if (!parentQuestionId && !type) {
+      return res
+        .status(400)
+        .json({ message: "type is required for root questions." });
     }
 
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
@@ -331,11 +337,82 @@ export const addSurveyQuestion = async (req, res) => {
       return res.status(404).json({ message: "Survey not found." });
     }
 
-    // if survey has allowedQuestionTypes, ensure type is allowed
+    const OPTION_BASED_TYPES = [
+      "MCQ_SINGLE",
+      "CHECKBOX",
+      "DROPDOWN",
+      "LIKERT",
+      "YES_NO",
+    ];
+
+    let parentQuestionDoc = null;
+
+    // ⭐ Follow-up validation (optional)
+    if (parentQuestionId) {
+      if (!mongoose.Types.ObjectId.isValid(parentQuestionId)) {
+        return res
+          .status(400)
+          .json({ message: "parentQuestionId must be a valid ObjectId." });
+      }
+
+      parentQuestionDoc = await SurveyQuestion.findOne({
+        _id: parentQuestionId,
+        survey: survey._id,
+      }).lean();
+
+      if (!parentQuestionDoc) {
+        return res.status(404).json({
+          message: "Parent question not found for this survey.",
+        });
+      }
+
+      if (!OPTION_BASED_TYPES.includes(parentQuestionDoc.type)) {
+        return res.status(400).json({
+          message:
+            "parentQuestion must be an option-based question (MCQ/CHECKBOX/DROPDOWN/LIKERT/YES_NO).",
+        });
+      }
+
+      if (!parentOptionValue || typeof parentOptionValue !== "string") {
+        return res.status(400).json({
+          message:
+            "parentOptionValue (string) is required when parentQuestionId is provided.",
+        });
+      }
+
+      const parentOptions = Array.isArray(parentQuestionDoc.options)
+        ? parentQuestionDoc.options
+        : [];
+
+      if (!parentOptions.includes(parentOptionValue)) {
+        return res.status(400).json({
+          message: `parentOptionValue must be one of parent question options: ${parentOptions.join(
+            ", "
+          )}`,
+        });
+      }
+    }
+
+    // 🔵 IMPORTANT:
+    //  - Agar follow-up hai => type ALWAYS OPEN_ENDED
+    //  - Agar root hai => type as provided
+    let finalType;
+    if (parentQuestionDoc) {
+      finalType = "OPEN_ENDED";
+    } else {
+      finalType = type;
+    }
+
+    if (!VALID_QUESTION_TYPES.includes(finalType)) {
+      return res.status(400).json({ message: "Invalid question type." });
+    }
+
+    // Survey.allowedQuestionTypes sirf ROOT questions ke liye enforce karenge
     if (
+      !parentQuestionDoc &&
       Array.isArray(survey.allowedQuestionTypes) &&
       survey.allowedQuestionTypes.length &&
-      !survey.allowedQuestionTypes.includes(type)
+      !survey.allowedQuestionTypes.includes(finalType)
     ) {
       return res.status(400).json({
         message: `This question type is not allowed for this survey. Allowed: ${survey.allowedQuestionTypes.join(
@@ -347,16 +424,20 @@ export const addSurveyQuestion = async (req, res) => {
     const doc = {
       survey: survey._id,
       questionText,
-      type,
+      type: finalType,
       required: typeof required === "boolean" ? required : true,
       order: typeof order === "number" ? order : 0,
       helpText,
     };
 
-    // type-specific handling for options
-    if (
-      ["MCQ_SINGLE", "CHECKBOX", "DROPDOWN", "LIKERT", "YES_NO"].includes(type)
-    ) {
+    // Attach parent info if present (this makes it a follow-up question)
+    if (parentQuestionDoc) {
+      doc.parentQuestion = parentQuestionDoc._id;
+      doc.parentOptionValue = parentOptionValue;
+    }
+
+    // Type-specific handling for ROOT option-based types only
+    if (!parentQuestionDoc && OPTION_BASED_TYPES.includes(finalType)) {
       if (!Array.isArray(options) || !options.length) {
         return res
           .status(400)
@@ -364,7 +445,6 @@ export const addSurveyQuestion = async (req, res) => {
       }
       doc.options = options;
 
-      // ⭐ "Other" option only meaningful for option-based questions
       if (typeof enableOtherOption === "boolean") {
         doc.enableOtherOption = enableOtherOption;
       }
@@ -374,14 +454,14 @@ export const addSurveyQuestion = async (req, res) => {
     }
 
     // checkbox & mcq multiple handling
-    if (type === "CHECKBOX") {
+    if (!parentQuestionDoc && finalType === "CHECKBOX") {
       doc.allowMultiple = true;
-    } else if (type === "MCQ_SINGLE") {
+    } else if (!parentQuestionDoc && finalType === "MCQ_SINGLE") {
       doc.allowMultiple = !!allowMultiple; // default false
     }
 
-    // rating config
-    if (type === "RATING") {
+    // rating config (only for root)
+    if (!parentQuestionDoc && finalType === "RATING") {
       doc.minRating = typeof minRating === "number" ? minRating : 1;
       doc.maxRating = typeof maxRating === "number" ? maxRating : 5;
       doc.ratingStep = typeof ratingStep === "number" ? ratingStep : 1;
@@ -389,7 +469,7 @@ export const addSurveyQuestion = async (req, res) => {
 
     const question = await SurveyQuestion.create(doc);
 
-    // ✅ yahan response clean kar rahe hain – sirf relevant fields bhejenge
+    // Clean response – includes hierarchy info + type-specific fields
     const cleanQuestion = {
       id: question._id,
       survey: question.survey,
@@ -400,13 +480,11 @@ export const addSurveyQuestion = async (req, res) => {
       isActive: question.isActive,
       createdAt: question.createdAt,
       updatedAt: question.updatedAt,
+      parentQuestion: question.parentQuestion,
+      parentOptionValue: question.parentOptionValue,
     };
 
-    if (
-      ["MCQ_SINGLE", "CHECKBOX", "DROPDOWN", "LIKERT", "YES_NO"].includes(
-        question.type
-      )
-    ) {
+    if (OPTION_BASED_TYPES.includes(question.type)) {
       cleanQuestion.options = question.options;
       cleanQuestion.enableOtherOption = question.enableOtherOption;
       cleanQuestion.otherOptionLabel = question.otherOptionLabel;
@@ -437,6 +515,8 @@ export const addSurveyQuestion = async (req, res) => {
 };
 
 // ✅ Admin updates a survey question
+//  - Agar question follow-up hai (parentQuestion set) => ALWAYS OPEN_ENDED
+//  - Multiple follow-ups per option allowed
 export const updateSurveyQuestion = async (req, res) => {
   try {
     const adminId = req.user?.sub;
@@ -457,9 +537,12 @@ export const updateSurveyQuestion = async (req, res) => {
       order,
       helpText,
       isActive,
-      // ⭐ NEW from FE for "Other"
+      // "Other"
       enableOtherOption,
       otherOptionLabel,
+      // Follow-up relation
+      parentQuestionId,
+      parentOptionValue,
     } = req.body;
 
     const question = await SurveyQuestion.findById(questionId);
@@ -467,13 +550,130 @@ export const updateSurveyQuestion = async (req, res) => {
       return res.status(404).json({ message: "Question not found." });
     }
 
-    // agar type change kar rahe ho to validate karo
-    if (type) {
+    const OPTION_BASED_TYPES = [
+      "MCQ_SINGLE",
+      "CHECKBOX",
+      "DROPDOWN",
+      "LIKERT",
+      "YES_NO",
+    ];
+
+    // ⭐ Follow-up update logic (parent relation first)
+    if (parentQuestionId !== undefined) {
+      if (!parentQuestionId) {
+        // Clear parent relation (no parent)
+        question.parentQuestion = null;
+        question.parentOptionValue = undefined;
+      } else {
+        if (!mongoose.Types.ObjectId.isValid(parentQuestionId)) {
+          return res
+            .status(400)
+            .json({ message: "parentQuestionId must be a valid ObjectId." });
+        }
+
+        const parentQuestionDoc = await SurveyQuestion.findOne({
+          _id: parentQuestionId,
+          survey: question.survey,
+        }).lean();
+
+        if (!parentQuestionDoc) {
+          return res.status(404).json({
+            message: "Parent question not found for this survey.",
+          });
+        }
+
+        if (!OPTION_BASED_TYPES.includes(parentQuestionDoc.type)) {
+          return res.status(400).json({
+            message:
+              "parentQuestion must be an option-based question (MCQ/CHECKBOX/DROPDOWN/LIKERT/YES_NO).",
+          });
+        }
+
+        let effectiveParentOptionValue = parentOptionValue;
+        if (
+          effectiveParentOptionValue === undefined &&
+          question.parentQuestion &&
+          String(question.parentQuestion) === String(parentQuestionDoc._id)
+        ) {
+          effectiveParentOptionValue = question.parentOptionValue;
+        }
+
+        if (
+          !effectiveParentOptionValue ||
+          typeof effectiveParentOptionValue !== "string"
+        ) {
+          return res.status(400).json({
+            message:
+              "parentOptionValue (string) is required when parentQuestionId is provided.",
+          });
+        }
+
+        const parentOptions = Array.isArray(parentQuestionDoc.options)
+          ? parentQuestionDoc.options
+          : [];
+
+        if (!parentOptions.includes(effectiveParentOptionValue)) {
+          return res.status(400).json({
+            message: `parentOptionValue must be one of parent question options: ${parentOptions.join(
+              ", "
+            )}`,
+          });
+        }
+
+        question.parentQuestion = parentQuestionDoc._id;
+        question.parentOptionValue = effectiveParentOptionValue;
+      }
+    } else if (parentOptionValue !== undefined) {
+      // Only parentOptionValue is changing
+      if (!question.parentQuestion) {
+        return res.status(400).json({
+          message:
+            "parentOptionValue cannot be set because this question has no parentQuestion.",
+        });
+      }
+
+      const parentQuestionDoc = await SurveyQuestion.findOne({
+        _id: question.parentQuestion,
+        survey: question.survey,
+      }).lean();
+
+      if (!parentQuestionDoc) {
+        return res.status(400).json({
+          message:
+            "Parent question not found while updating parentOptionValue.",
+        });
+      }
+
+      const parentOptions = Array.isArray(parentQuestionDoc.options)
+        ? parentQuestionDoc.options
+        : [];
+
+      if (!parentOptions.includes(parentOptionValue)) {
+        return res.status(400).json({
+          message: `parentOptionValue must be one of parent question options: ${parentOptions.join(
+            ", "
+          )}`,
+        });
+      }
+
+      question.parentOptionValue = parentOptionValue;
+    }
+
+    // Ab dekhte hain ki final me yeh question follow-up hai ya nahi
+    const willHaveParent = !!question.parentQuestion;
+
+    // 🔵 Type handling
+    let finalType = question.type;
+
+    if (willHaveParent) {
+      // Follow-up question => ALWAYS OPEN_ENDED
+      finalType = "OPEN_ENDED";
+    } else if (type) {
+      // Root question type change allowed
       if (!VALID_QUESTION_TYPES.includes(type)) {
         return res.status(400).json({ message: "Invalid question type." });
       }
 
-      // survey ke allowedQuestionTypes check karo (agar set hai)
       const survey = await Survey.findById(question.survey).lean();
       if (
         survey &&
@@ -488,8 +688,11 @@ export const updateSurveyQuestion = async (req, res) => {
         });
       }
 
-      question.type = type;
+      finalType = type;
     }
+
+    // Set final type
+    question.type = finalType;
 
     if (typeof questionText === "string") question.questionText = questionText;
     if (typeof required === "boolean") question.required = required;
@@ -499,14 +702,8 @@ export const updateSurveyQuestion = async (req, res) => {
     }
     if (typeof isActive === "boolean") question.isActive = isActive;
 
-    // type-specific handling
-    const finalType = question.type; // updated type (if changed above)
-
-    if (
-      ["MCQ_SINGLE", "CHECKBOX", "DROPDOWN", "LIKERT", "YES_NO"].includes(
-        finalType
-      )
-    ) {
+    // Type-specific handling (works for both root and follow-up)
+    if (!willHaveParent && OPTION_BASED_TYPES.includes(finalType)) {
       if (options !== undefined) {
         if (!Array.isArray(options) || !options.length) {
           return res.status(400).json({
@@ -516,7 +713,6 @@ export const updateSurveyQuestion = async (req, res) => {
         question.options = options;
       }
 
-      // ⭐ "Other" fields only meaningful for option-based questions
       if (typeof enableOtherOption === "boolean") {
         question.enableOtherOption = enableOtherOption;
       }
@@ -524,15 +720,24 @@ export const updateSurveyQuestion = async (req, res) => {
         const trimmed = otherOptionLabel.trim();
         question.otherOptionLabel = trimmed || "Other";
       }
-    } else {
-      // non-option types ke liye safe side pe reset
+    } else if (willHaveParent) {
+      // Follow-up questions are OPEN_ENDED: no options, no "Other"
+      question.options = [];
       question.enableOtherOption = false;
       question.otherOptionLabel = undefined;
+    } else {
+      // Non-option types (root OPEN_ENDED / RATING etc)
+      question.enableOtherOption = false;
+      question.otherOptionLabel = undefined;
+      if (!["OPEN_ENDED", "RATING"].includes(finalType)) {
+        question.options = [];
+      }
     }
 
-    if (finalType === "CHECKBOX") {
+    // allowMultiple handling
+    if (!willHaveParent && finalType === "CHECKBOX") {
       question.allowMultiple = true;
-    } else if (finalType === "MCQ_SINGLE") {
+    } else if (!willHaveParent && finalType === "MCQ_SINGLE") {
       if (allowMultiple !== undefined) {
         question.allowMultiple = !!allowMultiple;
       } else {
@@ -542,7 +747,8 @@ export const updateSurveyQuestion = async (req, res) => {
       question.allowMultiple = undefined;
     }
 
-    if (finalType === "RATING") {
+    // Rating config (only for root rating questions)
+    if (!willHaveParent && finalType === "RATING") {
       if (minRating !== undefined) question.minRating = Number(minRating) || 1;
       if (maxRating !== undefined) question.maxRating = Number(maxRating) || 5;
       if (ratingStep !== undefined)
@@ -565,13 +771,11 @@ export const updateSurveyQuestion = async (req, res) => {
       isActive: question.isActive,
       createdAt: question.createdAt,
       updatedAt: question.updatedAt,
+      parentQuestion: question.parentQuestion,
+      parentOptionValue: question.parentOptionValue,
     };
 
-    if (
-      ["MCQ_SINGLE", "CHECKBOX", "DROPDOWN", "LIKERT", "YES_NO"].includes(
-        question.type
-      )
-    ) {
+    if (OPTION_BASED_TYPES.includes(question.type)) {
       cleanQuestion.options = question.options;
       cleanQuestion.enableOtherOption = question.enableOtherOption;
       cleanQuestion.otherOptionLabel = question.otherOptionLabel;
@@ -649,7 +853,6 @@ export const listSurveys = async (req, res) => {
         endDate: 1,
         isActive: 1,
         createdAt: 1,
-        // ✅ show assigned users in admin list
         assignedUsers: 1,
       }
     )
@@ -665,9 +868,6 @@ export const listSurveys = async (req, res) => {
 };
 
 // ✅ Public: list ACTIVE surveys for SURVEY_USER app
-//   - Agar userCode nahi diya => (optional) sab ACTIVE + isActive surveys (global)
-//   - Agar userCode diya => sirf woh surveys jisme assignedUsers me woh user hai
-//     (yani "jo survey usko assigned hai bas usko wahi survey dikhane")
 export const listPublicSurveys = async (req, res) => {
   try {
     const { userCode } = req.query;
@@ -679,7 +879,6 @@ export const listPublicSurveys = async (req, res) => {
 
     let filter = { ...baseFilter };
 
-    // agar app se userCode aaya hai (SURVEY_USER)
     if (userCode) {
       const user = await User.findOne({
         userCode,
@@ -694,32 +893,26 @@ export const listPublicSurveys = async (req, res) => {
         });
       }
 
-      // 🔴 IMPORTANT:
-      // Ab sirf wahi surveys dikhenge jo iss user ko assign hain
-      // Yani global (assignedUsers empty) surveys yahan nahi dikhayenge
       filter.assignedUsers = user._id;
     }
 
-    const surveys = await Survey.find(
-      filter,
-      {
-        surveyCode: 1,
-        name: 1,
-        description: 1,
-        status: 1,
-        category: 1,
-        projectName: 1,
-        targetAudience: 1,
-        startDate: 1,
-        endDate: 1,
-        isAnonymousAllowed: 1,
-        maxResponses: 1,
-        language: 1,
-        tags: 1,
-        isActive: 1,
-        createdAt: 1,
-      }
-    )
+    const surveys = await Survey.find(filter, {
+      surveyCode: 1,
+      name: 1,
+      description: 1,
+      status: 1,
+      category: 1,
+      projectName: 1,
+      targetAudience: 1,
+      startDate: 1,
+      endDate: 1,
+      isAnonymousAllowed: 1,
+      maxResponses: 1,
+      language: 1,
+      tags: 1,
+      isActive: 1,
+      createdAt: 1,
+    })
       .sort({ startDate: 1, createdAt: -1 })
       .lean();
 
@@ -730,22 +923,15 @@ export const listPublicSurveys = async (req, res) => {
   }
 };
 
-
 // ✅ Get survey + its questions (by _id or surveyCode)
-// 🔴 SURVEY_USER case me ?userCode=USR-XXXX pass kare:
-//    - Active SURVEY_USER check
-//    - Aaj ka punch-in check
-//    - Survey assignment check (agar survey assignedUsers use karta hai)
 export const getSurveyWithQuestions = async (req, res) => {
   try {
     const { surveyIdOrCode } = req.params;
-    const { userCode } = req.query; // 🔴 NEW
+    const { userCode } = req.query; // SURVEY_USER app ke liye
 
     let user = null;
 
-    // 🔴 Agar userCode aaya hai to SURVEY_USER + punch-in + assignment validate karo
     if (userCode) {
-      // 1) Check valid active SURVEY_USER
       user = await User.findOne({
         userCode,
         role: "SURVEY_USER",
@@ -759,7 +945,6 @@ export const getSurveyWithQuestions = async (req, res) => {
         });
       }
 
-      // 2) Aaj ka punch-in check
       const { startOfDay, endOfDay } = getTodayRange();
 
       const todayPunch = await PunchIn.findOne({
@@ -775,15 +960,12 @@ export const getSurveyWithQuestions = async (req, res) => {
       }
     }
 
-    // ✅ survey fetch
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
     if (!survey) {
       return res.status(404).json({ message: "Survey not found" });
     }
 
-    // ✅ Agar userCode diya hai to assignment bhi verify karo
     if (userCode && user) {
-      // agar survey ke paas assignedUsers ka data hai
       if (
         Array.isArray(survey.assignedUsers) &&
         survey.assignedUsers.length > 0
@@ -799,9 +981,6 @@ export const getSurveyWithQuestions = async (req, res) => {
           });
         }
       }
-      // agar assignedUsers empty hai ya field hi nahi hai =>
-      // abhi ke logic me survey ko open maan rahe (global)
-      // (agar tum chaho to yahan bhi strictly block kar sakte ho)
     }
 
     const rawQuestions = await SurveyQuestion.find({
@@ -811,7 +990,14 @@ export const getSurveyWithQuestions = async (req, res) => {
       .sort({ order: 1, createdAt: 1 })
       .lean();
 
-    // ✅ Cleaned question format
+    const OPTION_BASED_TYPES = [
+      "MCQ_SINGLE",
+      "CHECKBOX",
+      "DROPDOWN",
+      "LIKERT",
+      "YES_NO",
+    ];
+
     const questions = rawQuestions.map((q) => {
       const base = {
         id: q._id,
@@ -823,13 +1009,11 @@ export const getSurveyWithQuestions = async (req, res) => {
         isActive: q.isActive,
         createdAt: q.createdAt,
         updatedAt: q.updatedAt,
+        parentQuestion: q.parentQuestion || null,
+        parentOptionValue: q.parentOptionValue || null,
       };
 
-      if (
-        ["MCQ_SINGLE", "CHECKBOX", "DROPDOWN", "LIKERT", "YES_NO"].includes(
-          q.type
-        )
-      ) {
+      if (OPTION_BASED_TYPES.includes(q.type)) {
         base.options = q.options;
         base.enableOtherOption = q.enableOtherOption;
         base.otherOptionLabel = q.otherOptionLabel;
@@ -858,4 +1042,3 @@ export const getSurveyWithQuestions = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
-

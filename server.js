@@ -11,7 +11,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import punchInRoutes from "./routes/punchInRoutes.js";
 import surveyRoutes from "./routes/surveyRoutes.js";
-import dashboardRoutes from "./routes/dashboardRoutes.js"; // ✅ NEW
+import dashboardRoutes from "./routes/dashboardRoutes.js";
 import helpRoutes from "./routes/helpRoutes.js";
 import statsRoutes from "./routes/statsRoutes.js";
 
@@ -21,18 +21,20 @@ const app = express();
 app.use(helmet());
 
 // 🌐 CORS config
-const FRONTEND_ORIGIN = "https://query-qc-panel.onrender.com";
+const allowedOrigins = [
+  "https://query-qc-panel.onrender.com",
+  "https://query-admin-panel.onrender.com",
+];
 
 const corsOptions = {
-  origin: FRONTEND_ORIGIN, // ✅ only this frontend allowed
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // ✅ all common methods
-  allowedHeaders: ["Content-Type", "Authorization"], // ✅ adjust if you use more custom headers
-  credentials: true, // ✅ allow cookies / Authorization header
+  origin: allowedOrigins,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
 };
 
+// ✅ Simple CORS middleware (koi app.options() jugglery nahi)
 app.use(cors(corsOptions));
-// Preflight ke liye OPTIONS requests ko bhi allow karo
-app.options("*", cors(corsOptions));
 
 // 📜 Logs
 app.use(morgan("dev"));
@@ -43,8 +45,8 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // ⏱️ Rate limit for login endpoints
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 100, // max 100 requests per window per IP
+  windowMs: 15 * 60 * 1000,
+  max: 100,
 });
 
 app.use("/api/admin/login", authLimiter);
@@ -64,7 +66,7 @@ app.use("/api/stats", statsRoutes);
 // ✅ Dashboard routes: final path = /api/admin/dashboard/overview
 app.use("/api/admin/dashboard", dashboardRoutes);
 
-// ✅ Health / root checks
+// Health + root
 app.get("/", (_req, res) => res.send("✅ API is running..."));
 app.get("/health", (_req, res) =>
   res.json({ status: "OK", time: new Date().toISOString() })
@@ -83,6 +85,5 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Internal server error" });
 });
 
-// 🚀 Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server on :${PORT}`));
