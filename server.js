@@ -24,6 +24,8 @@ app.use(helmet());
 const allowedOrigins = [
   "https://query-qc-panel.onrender.com",
   "https://query-admin-panel.onrender.com",
+  "https://qc.o3consulting.in",
+  "https://admin.o3consulting.in",
   "http://localhost:5173"
 ];
 
