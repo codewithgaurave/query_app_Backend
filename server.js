@@ -24,6 +24,7 @@ app.use(helmet());
 const allowedOrigins = [
   "https://query-qc-panel.onrender.com",
   "https://query-admin-panel.onrender.com",
+  "http://localhost:5173"
 ];
 
 const corsOptions = {
