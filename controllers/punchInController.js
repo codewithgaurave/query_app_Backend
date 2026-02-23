@@ -5,6 +5,10 @@ import PunchIn from "../models/PunchIn.js";
 // ✅ SURVEY_USER punch-in using userCode (no token, per-day single record)
 export const punchIn = async (req, res) => {
   try {
+    console.log("📥 Punch-in request received");
+    console.log("Body:", req.body);
+    console.log("File:", req.file);
+    
     const { userCode, latitude, longitude } = req.body;
 
     if (!userCode || !latitude || !longitude) {
@@ -88,8 +92,13 @@ export const punchIn = async (req, res) => {
       });
     }
   } catch (err) {
-    console.error("punchIn error:", err);
-    return res.status(500).json({ message: "Server error" });
+    console.error("❌ punchIn error:", err);
+    console.error("Error stack:", err.stack);
+    return res.status(500).json({ 
+      message: "Server error",
+      error: err.message,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
 

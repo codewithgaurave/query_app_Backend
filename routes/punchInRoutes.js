@@ -19,7 +19,18 @@ const requireAdminOnly = (req, res, next) => {
 };
 
 // PUBLIC: SURVEY_USER punch-in using userCode (no token)
-router.post("/", uploadPunchinPhoto, punchIn);
+router.post("/", (req, res, next) => {
+  uploadPunchinPhoto(req, res, (err) => {
+    if (err) {
+      console.error("❌ Multer upload error:", err);
+      return res.status(400).json({ 
+        message: "File upload failed", 
+        error: err.message 
+      });
+    }
+    next();
+  });
+}, punchIn);
 
 // PUBLIC: user history by userCode
 router.get("/user/:userCode", getUserPunchHistory);
