@@ -223,14 +223,7 @@ const punchinStorage = new CloudinaryStorage({
 const punchinMulter = multer({
   storage: punchinStorage,
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-    if (allowed.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error("Invalid file type. Only image files are allowed."),
-      false
-    );
-  },
+  // Allow all files - Cloudinary will handle validation
 });
 
 // single: photo
