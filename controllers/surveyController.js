@@ -893,7 +893,12 @@ export const listPublicSurveys = async (req, res) => {
         });
       }
 
-      filter.assignedUsers = user._id;
+      // Allow surveys explicitly assigned to the user OR global surveys (assignedUsers array is empty or doesn't exist)
+      filter.$or = [
+        { assignedUsers: user._id },
+        { assignedUsers: { $exists: true, $size: 0 } },
+        { assignedUsers: { $exists: false } }
+      ];
     }
 
     const surveys = await Survey.find(filter, {
