@@ -10,6 +10,7 @@ import {
   deleteSurvey,
   updateSurveyQuestion,
   deleteSurveyQuestion,
+  duplicateSurvey,
 } from "../controllers/surveyController.js";
 import {
   submitSurveyResponse,
@@ -81,6 +82,14 @@ router.delete(
   requireAuth,
   requireAdminOnly,
   deleteSurvey
+);
+
+// ✅ Duplicate survey (Admin)
+router.post(
+  "/:surveyIdOrCode/duplicate",
+  requireAuth,
+  requireAdminOnly,
+  duplicateSurvey
 );
 
 // ✅ Add question (Admin)

@@ -289,6 +289,102 @@ export const deleteSurvey = async (req, res) => {
   }
 };
 
+// ✅ Admin duplicates a survey (by _id or surveyCode) + its questions
+export const duplicateSurvey = async (req, res) => {
+  try {
+    const adminId = req.user?.sub;
+    if (!adminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { surveyIdOrCode } = req.params;
+    const originalSurvey = await findSurveyByIdOrCode(surveyIdOrCode);
+    if (!originalSurvey) {
+      return res.status(404).json({ message: "Survey not found" });
+    }
+
+    // 1. Create the new duplicated survey
+    const newSurveyCode = generateSurveyCode();
+    
+    // Create new survey payload by omitting unneeded fields and modifying name/status
+    const surveyPayload = {
+      ...originalSurvey,
+      _id: new mongoose.Types.ObjectId(),
+      surveyCode: newSurveyCode,
+      name: `${originalSurvey.name} - Copy`,
+      status: "DRAFT",
+      startDate: undefined,
+      endDate: undefined,
+      createdAt: undefined,
+      updatedAt: undefined,
+      createdAtIST: undefined,
+      updatedAtIST: undefined,
+    };
+    
+    // Explicitly delete mongo internals
+    delete surveyPayload.__v;
+
+    const newSurvey = await Survey.create(surveyPayload);
+
+    // 2. Fetch all original questions
+    const originalQuestions = await SurveyQuestion.find({ survey: originalSurvey._id })
+      .sort({ order: 1 })
+      .lean();
+
+    const rootQuestions = originalQuestions.filter((q) => !q.parentQuestion);
+    const followUpQuestions = originalQuestions.filter((q) => q.parentQuestion);
+    
+    const questionIdMapping = {}; // { oldId: newId }
+
+    // 3. Duplicate Root Questions
+    for (const q of rootQuestions) {
+      const oldId = q._id.toString();
+      
+      const qPayload = { ...q };
+      delete qPayload._id;
+      delete qPayload.__v;
+      delete qPayload.createdAt;
+      delete qPayload.updatedAt;
+      delete qPayload.createdAtIST;
+      delete qPayload.updatedAtIST;
+      
+      qPayload.survey = newSurvey._id;
+
+      const newQ = await SurveyQuestion.create(qPayload);
+      questionIdMapping[oldId] = newQ._id.toString();
+    }
+
+    // 4. Duplicate Follow-Up Questions
+    for (const q of followUpQuestions) {
+      const oldParentId = q.parentQuestion.toString();
+      const newParentId = questionIdMapping[oldParentId];
+
+      if (newParentId) {
+        const qPayload = { ...q };
+        delete qPayload._id;
+        delete qPayload.__v;
+        delete qPayload.createdAt;
+        delete qPayload.updatedAt;
+        delete qPayload.createdAtIST;
+        delete qPayload.updatedAtIST;
+        
+        qPayload.survey = newSurvey._id;
+        qPayload.parentQuestion = newParentId;
+
+        await SurveyQuestion.create(qPayload);
+      }
+    }
+
+    return res.status(201).json({
+      message: "Survey duplicated successfully",
+      survey: newSurvey,
+    });
+  } catch (err) {
+    console.error("duplicateSurvey error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 // ✅ Admin adds a question to a survey (by _id or surveyCode)
 // Root question -> koi bhi allowed type
 // Follow-up question (parentQuestionId set) -> ALWAYS OPEN_ENDED + multiple allowed per option
