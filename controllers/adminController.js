@@ -93,3 +93,63 @@ export const logoutAll = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+// Get Admin Profile (protected)
+export const getAdminProfile = async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.user.sub).select("-password -tokenVersion -__v");
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+    return res.json({ admin });
+  } catch (err) {
+    console.error("getAdminProfile error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Edit Admin Profile (protected)
+export const editAdminProfile = async (req, res) => {
+  try {
+    const { name } = req.body;
+    const admin = await Admin.findById(req.user.sub).select("-password -tokenVersion -__v");
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+
+    if (name) admin.name = name;
+    
+    await admin.save();
+    return res.json({ 
+      message: "Profile updated successfully", 
+      admin 
+    });
+  } catch (err) {
+    console.error("editAdminProfile error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Change Password (protected)
+export const changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ message: "Old and new passwords are required." });
+    }
+
+    const admin = await Admin.findById(req.user.sub).select("+password +tokenVersion");
+    if (!admin) return res.status(404).json({ message: "Admin not found" });
+
+    const ok = await bcrypt.compare(oldPassword, admin.password);
+    if (!ok) return res.status(401).json({ message: "Invalid old password." });
+
+    const hash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    admin.password = hash;
+    // Log out of other devices automatically
+    admin.tokenVersion += 1;
+    
+    await admin.save();
+
+    return res.json({ message: "Password changed successfully. You have been logged out of other devices." });
+  } catch (err) {
+    console.error("changePassword error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
