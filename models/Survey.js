@@ -94,6 +94,13 @@ const surveySchema = new mongoose.Schema(
       },
     ],
 
+    assignedQCs: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     createdByAdmin: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",

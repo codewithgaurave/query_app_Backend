@@ -66,6 +66,7 @@ export const createSurvey = async (req, res) => {
       allowedQuestionTypes,
       // NEW: frontend se array of userIds
       assignedUserIds,
+      assignedQCIds,
     } = req.body;
 
     if (!name) {
@@ -113,6 +114,36 @@ export const createSurvey = async (req, res) => {
       assignedUsers = users.map((u) => u._id);
     }
 
+    // assigned QCs resolve karo
+    let assignedQCs = [];
+    if (Array.isArray(assignedQCIds) && assignedQCIds.length) {
+      const validQcIds = assignedQCIds.filter((id) =>
+        mongoose.Types.ObjectId.isValid(id)
+      );
+
+      if (!validQcIds.length) {
+        return res
+          .status(400)
+          .json({ message: "No valid assignedQCIds provided." });
+      }
+
+      const qcs = await User.find({
+        _id: { $in: validQcIds },
+        role: "QUALITY_ENGINEER",
+        isActive: true,
+      })
+        .select("_id role")
+        .lean();
+
+      if (!qcs.length) {
+        return res.status(400).json({
+          message: "No active QUALITY_ENGINEER found for assignedQCIds.",
+        });
+      }
+
+      assignedQCs = qcs.map((q) => q._id);
+    }
+
     const surveyCode = generateSurveyCode();
 
     const survey = await Survey.create({
@@ -132,6 +163,7 @@ export const createSurvey = async (req, res) => {
       allowedQuestionTypes: allowedTypes,
       createdByAdmin: adminId,
       assignedUsers,
+      assignedQCs,
     });
 
     return res.status(201).json({
@@ -176,6 +208,7 @@ export const updateSurvey = async (req, res) => {
       isActive,
       // updated list of userIds (full replacement)
       assignedUserIds,
+      assignedQCIds,
     } = req.body;
 
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
@@ -243,6 +276,39 @@ export const updateSurvey = async (req, res) => {
         }
 
         update.assignedUsers = users.map((u) => u._id);
+      }
+    }
+
+    // QC assignment update (full replacement)
+    if (Array.isArray(assignedQCIds)) {
+      if (!assignedQCIds.length) {
+        update.assignedQCs = [];
+      } else {
+        const validQcIds = assignedQCIds.filter((id) =>
+          mongoose.Types.ObjectId.isValid(id)
+        );
+
+        if (!validQcIds.length) {
+          return res
+            .status(400)
+            .json({ message: "No valid assignedQCIds provided." });
+        }
+
+        const qcs = await User.find({
+          _id: { $in: validQcIds },
+          role: "QUALITY_ENGINEER",
+          isActive: true,
+        })
+          .select("_id role")
+          .lean();
+
+        if (!qcs.length) {
+          return res.status(400).json({
+            message: "No active QUALITY_ENGINEER found for assignedQCIds.",
+          });
+        }
+
+        update.assignedQCs = qcs.map((q) => q._id);
       }
     }
 

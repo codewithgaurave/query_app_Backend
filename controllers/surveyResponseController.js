@@ -854,6 +854,135 @@ export const approveSurveyResponse = async (req, res) => {
 
 
 /**
+ * ✅ SECURE QC PANEL:
+ * - Sirf wahi surveys ke responses layega jisme logged in QC assign hua hai
+ */
+export const getAssignedSurveyResponsesForQC = async (req, res) => {
+  try {
+    const qcId = req.user?.sub;
+    if (!qcId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Pehle wo surveys dhundo jisme yeh QC assign hua hai
+    const assignedSurveys = await Survey.find(
+      { assignedQCs: qcId },
+      { _id: 1 }
+    ).lean();
+
+    if (!assignedSurveys.length) {
+      return res.json({ surveys: [] });
+    }
+
+    const assignedSurveyIds = assignedSurveys.map(s => s._id);
+
+    // Ab in surveys ke responses fetch karo
+    const responses = await SurveyResponse.find(
+      { survey: { $in: assignedSurveyIds } },
+      {
+        survey: 1,
+        surveyCode: 1,
+        userCode: 1,
+        userName: 1,
+        userMobile: 1,
+        userRole: 1,
+        audioUrl: 1,
+        answers: 1,
+        isCompleted: 1,
+        isApproved: 1,
+        approvalStatus: 1,
+        approvedBy: 1,
+        createdAt: 1,
+        latitude: 1,
+        longitude: 1,
+      }
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!responses.length) {
+      return res.json({ surveys: [] });
+    }
+
+    const surveyIds = [...new Set(responses.map((r) => String(r.survey)))];
+
+    const surveys = await Survey.find(
+      { _id: { $in: surveyIds } },
+      {
+        name: 1,
+        surveyCode: 1,
+        description: 1,
+        status: 1,
+        category: 1,
+        projectName: 1,
+      }
+    ).lean();
+
+    const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
+
+    const grouped = new Map();
+
+    for (const r of responses) {
+      const key = String(r.survey);
+      const s = surveyMap.get(key);
+      if (!s) continue;
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          surveyId: s._id,
+          surveyCode: s.surveyCode,
+          name: s.name,
+          description: s.description,
+          status: s.status,
+          category: s.category,
+          projectName: s.projectName,
+          responses: [],
+        });
+      }
+
+      const answers = (r.answers || []).map((a) => ({
+        questionId: a.question,
+        questionText: a.questionText,
+        questionType: a.questionType,
+        answerText: a.answerText,
+        selectedOptions: a.selectedOptions,
+        rating: a.rating,
+        otherText: a.otherText,
+      }));
+
+      grouped.get(key).responses.push({
+        responseId: r._id,
+        userCode: r.userCode,
+        userName: r.userName,
+        userMobile: r.userMobile,
+        userRole: r.userRole,
+        audioUrl: r.audioUrl,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        isCompleted: r.isCompleted,
+        isApproved: r.isApproved,
+        approvalStatus: r.approvalStatus,
+        approvedBy: r.approvedBy,
+        createdAt: r.createdAt,
+        answers,
+      });
+    }
+
+    const result = Array.from(grouped.values()).sort((a, b) => {
+      const lastA = a.responses[0]?.createdAt || 0;
+      const lastB = b.responses[0]?.createdAt || 0;
+      return lastB - lastA;
+    });
+
+    return res.json({ surveys: result });
+  } catch (err) {
+    console.error("getAssignedSurveyResponsesForQC error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+/**
  * ✅ NEW PUBLIC (NO AUTH):
  * - Sabhi surveys ke saare responses
  * - Kis user ne kiya, answers, audio, approval info sab

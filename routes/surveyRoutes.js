@@ -19,6 +19,7 @@ import {
   listUserSurveySummary,
   adminSurveyResponseSummary,
   approveSurveyResponse,
+  getAssignedSurveyResponsesForQC, // ✅ NEW SECURE ROUTE FOR QC
   // ⬇️ NEW PUBLIC CONTROLLERS
   publicSurveyResponsesWithApproval,
   publicSetSurveyResponseApproval,
@@ -50,6 +51,9 @@ const requireQualityEngineerOnly = (req, res, next) => {
   }
   next();
 };
+
+// ✅ SECURE QC PANEL: get only assigned surveys for the logged in QC
+router.get("/qc/responses/assigned", requireAuth, requireQualityEngineerOnly, getAssignedSurveyResponsesForQC);
 
 // ✅ PUBLIC: list surveys for SURVEY_USER app (no token)
 // default: sirf ACTIVE surveys
