@@ -528,50 +528,23 @@ export const addSurveyQuestion = async (req, res) => {
         });
       }
 
-      if (!OPTION_BASED_TYPES.includes(parentQuestionDoc.type)) {
-        return res.status(400).json({
-          message:
-            "parentQuestion must be an option-based question (MCQ/CHECKBOX/DROPDOWN/LIKERT/YES_NO).",
-        });
-      }
-
       if (!parentOptionValue || typeof parentOptionValue !== "string") {
         return res.status(400).json({
           message:
             "parentOptionValue (string) is required when parentQuestionId is provided.",
         });
       }
-
-      const parentOptions = Array.isArray(parentQuestionDoc.options)
-        ? parentQuestionDoc.options
-        : [];
-
-      if (!parentOptions.includes(parentOptionValue)) {
-        return res.status(400).json({
-          message: `parentOptionValue must be one of parent question options: ${parentOptions.join(
-            ", "
-          )}`,
-        });
-      }
     }
 
-    // 🔵 IMPORTANT:
-    //  - Agar follow-up hai => type ALWAYS OPEN_ENDED
-    //  - Agar root hai => type as provided
-    let finalType;
-    if (parentQuestionDoc) {
-      finalType = "OPEN_ENDED";
-    } else {
-      finalType = type;
-    }
+    // 🔵 Allow any question type for root and follow-up questions
+    let finalType = type || "OPEN_ENDED";
 
     if (!VALID_QUESTION_TYPES.includes(finalType)) {
       return res.status(400).json({ message: "Invalid question type." });
     }
 
-    // Survey.allowedQuestionTypes sirf ROOT questions ke liye enforce karenge
+    // Survey.allowedQuestionTypes enforce
     if (
-      !parentQuestionDoc &&
       Array.isArray(survey.allowedQuestionTypes) &&
       survey.allowedQuestionTypes.length &&
       !survey.allowedQuestionTypes.includes(finalType)
@@ -592,14 +565,13 @@ export const addSurveyQuestion = async (req, res) => {
       helpText,
     };
 
-    // Attach parent info if present (this makes it a follow-up question)
     if (parentQuestionDoc) {
       doc.parentQuestion = parentQuestionDoc._id;
       doc.parentOptionValue = parentOptionValue;
     }
 
-    // Type-specific handling for ROOT option-based types only
-    if (!parentQuestionDoc && OPTION_BASED_TYPES.includes(finalType)) {
+    // Type-specific handling for ALL option-based questions (root and follow-up)
+    if (OPTION_BASED_TYPES.includes(finalType)) {
       if (!Array.isArray(options) || !options.length) {
         return res
           .status(400)
@@ -616,14 +588,14 @@ export const addSurveyQuestion = async (req, res) => {
     }
 
     // checkbox & mcq multiple handling
-    if (!parentQuestionDoc && finalType === "CHECKBOX") {
+    if (finalType === "CHECKBOX") {
       doc.allowMultiple = true;
-    } else if (!parentQuestionDoc && finalType === "MCQ_SINGLE") {
+    } else if (finalType === "MCQ_SINGLE") {
       doc.allowMultiple = !!allowMultiple; // default false
     }
 
-    // rating config (only for root)
-    if (!parentQuestionDoc && finalType === "RATING") {
+    // rating config
+    if (finalType === "RATING") {
       doc.minRating = typeof minRating === "number" ? minRating : 1;
       doc.maxRating = typeof maxRating === "number" ? maxRating : 5;
       doc.ratingStep = typeof ratingStep === "number" ? ratingStep : 1;
@@ -631,7 +603,6 @@ export const addSurveyQuestion = async (req, res) => {
 
     const question = await SurveyQuestion.create(doc);
 
-    // Clean response – includes hierarchy info + type-specific fields
     const cleanQuestion = {
       id: question._id,
       survey: question.survey,
@@ -639,46 +610,33 @@ export const addSurveyQuestion = async (req, res) => {
       type: question.type,
       required: question.required,
       order: question.order,
-      isActive: question.isActive,
+      helpText: question.helpText,
+      parentQuestion: question.parentQuestion || null,
+      parentOptionValue: question.parentOptionValue || "",
+      options: question.options || [],
+      allowMultiple: question.allowMultiple || false,
+      minRating: question.minRating,
+      maxRating: question.maxRating,
+      ratingStep: question.ratingStep,
+      enableOtherOption: question.enableOtherOption || false,
+      otherOptionLabel: question.otherOptionLabel || "Other",
       createdAt: question.createdAt,
       updatedAt: question.updatedAt,
-      parentQuestion: question.parentQuestion,
-      parentOptionValue: question.parentOptionValue,
     };
 
-    if (OPTION_BASED_TYPES.includes(question.type)) {
-      cleanQuestion.options = question.options;
-      cleanQuestion.enableOtherOption = question.enableOtherOption;
-      cleanQuestion.otherOptionLabel = question.otherOptionLabel;
-    }
-
-    if (["MCQ_SINGLE", "CHECKBOX"].includes(question.type)) {
-      cleanQuestion.allowMultiple = question.allowMultiple;
-    }
-
-    if (question.type === "RATING") {
-      cleanQuestion.minRating = question.minRating;
-      cleanQuestion.maxRating = question.maxRating;
-      cleanQuestion.ratingStep = question.ratingStep;
-    }
-
-    if (question.helpText) {
-      cleanQuestion.helpText = question.helpText;
-    }
-
     return res.status(201).json({
-      message: "Question added to survey successfully",
+      message: parentQuestionDoc
+        ? "Follow-up question added successfully."
+        : "Survey question added successfully.",
       question: cleanQuestion,
     });
   } catch (err) {
-    console.error("addSurveyQuestion error:", err);
+    console.error("Error adding survey question:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
 
 // ✅ Admin updates a survey question
-//  - Agar question follow-up hai (parentQuestion set) => ALWAYS OPEN_ENDED
-//  - Multiple follow-ups per option allowed
 export const updateSurveyQuestion = async (req, res) => {
   try {
     const adminId = req.user?.sub;
@@ -699,10 +657,8 @@ export const updateSurveyQuestion = async (req, res) => {
       order,
       helpText,
       isActive,
-      // "Other"
       enableOtherOption,
       otherOptionLabel,
-      // Follow-up relation
       parentQuestionId,
       parentOptionValue,
     } = req.body;
@@ -720,10 +676,9 @@ export const updateSurveyQuestion = async (req, res) => {
       "YES_NO",
     ];
 
-    // ⭐ Follow-up update logic (parent relation first)
+    // ⭐ Follow-up update logic
     if (parentQuestionId !== undefined) {
       if (!parentQuestionId) {
-        // Clear parent relation (no parent)
         question.parentQuestion = null;
         question.parentOptionValue = undefined;
       } else {
@@ -741,13 +696,6 @@ export const updateSurveyQuestion = async (req, res) => {
         if (!parentQuestionDoc) {
           return res.status(404).json({
             message: "Parent question not found for this survey.",
-          });
-        }
-
-        if (!OPTION_BASED_TYPES.includes(parentQuestionDoc.type)) {
-          return res.status(400).json({
-            message:
-              "parentQuestion must be an option-based question (MCQ/CHECKBOX/DROPDOWN/LIKERT/YES_NO).",
           });
         }
 
@@ -770,23 +718,10 @@ export const updateSurveyQuestion = async (req, res) => {
           });
         }
 
-        const parentOptions = Array.isArray(parentQuestionDoc.options)
-          ? parentQuestionDoc.options
-          : [];
-
-        if (!parentOptions.includes(effectiveParentOptionValue)) {
-          return res.status(400).json({
-            message: `parentOptionValue must be one of parent question options: ${parentOptions.join(
-              ", "
-            )}`,
-          });
-        }
-
         question.parentQuestion = parentQuestionDoc._id;
         question.parentOptionValue = effectiveParentOptionValue;
       }
     } else if (parentOptionValue !== undefined) {
-      // Only parentOptionValue is changing
       if (!question.parentQuestion) {
         return res.status(400).json({
           message:
@@ -794,44 +729,13 @@ export const updateSurveyQuestion = async (req, res) => {
         });
       }
 
-      const parentQuestionDoc = await SurveyQuestion.findOne({
-        _id: question.parentQuestion,
-        survey: question.survey,
-      }).lean();
-
-      if (!parentQuestionDoc) {
-        return res.status(400).json({
-          message:
-            "Parent question not found while updating parentOptionValue.",
-        });
-      }
-
-      const parentOptions = Array.isArray(parentQuestionDoc.options)
-        ? parentQuestionDoc.options
-        : [];
-
-      if (!parentOptions.includes(parentOptionValue)) {
-        return res.status(400).json({
-          message: `parentOptionValue must be one of parent question options: ${parentOptions.join(
-            ", "
-          )}`,
-        });
-      }
-
       question.parentOptionValue = parentOptionValue;
     }
-
-    // Ab dekhte hain ki final me yeh question follow-up hai ya nahi
-    const willHaveParent = !!question.parentQuestion;
 
     // 🔵 Type handling
     let finalType = question.type;
 
-    if (willHaveParent) {
-      // Follow-up question => ALWAYS OPEN_ENDED
-      finalType = "OPEN_ENDED";
-    } else if (type) {
-      // Root question type change allowed
+    if (type) {
       if (!VALID_QUESTION_TYPES.includes(type)) {
         return res.status(400).json({ message: "Invalid question type." });
       }
@@ -853,7 +757,6 @@ export const updateSurveyQuestion = async (req, res) => {
       finalType = type;
     }
 
-    // Set final type
     question.type = finalType;
 
     if (typeof questionText === "string") question.questionText = questionText;
@@ -865,7 +768,7 @@ export const updateSurveyQuestion = async (req, res) => {
     if (typeof isActive === "boolean") question.isActive = isActive;
 
     // Type-specific handling (works for both root and follow-up)
-    if (!willHaveParent && OPTION_BASED_TYPES.includes(finalType)) {
+    if (OPTION_BASED_TYPES.includes(finalType)) {
       if (options !== undefined) {
         if (!Array.isArray(options) || !options.length) {
           return res.status(400).json({
@@ -882,13 +785,8 @@ export const updateSurveyQuestion = async (req, res) => {
         const trimmed = otherOptionLabel.trim();
         question.otherOptionLabel = trimmed || "Other";
       }
-    } else if (willHaveParent) {
-      // Follow-up questions are OPEN_ENDED: no options, no "Other"
-      question.options = [];
-      question.enableOtherOption = false;
-      question.otherOptionLabel = undefined;
     } else {
-      // Non-option types (root OPEN_ENDED / RATING etc)
+      // Non-option types (OPEN_ENDED / RATING etc)
       question.enableOtherOption = false;
       question.otherOptionLabel = undefined;
       if (!["OPEN_ENDED", "RATING"].includes(finalType)) {
@@ -897,9 +795,9 @@ export const updateSurveyQuestion = async (req, res) => {
     }
 
     // allowMultiple handling
-    if (!willHaveParent && finalType === "CHECKBOX") {
+    if (finalType === "CHECKBOX") {
       question.allowMultiple = true;
-    } else if (!willHaveParent && finalType === "MCQ_SINGLE") {
+    } else if (finalType === "MCQ_SINGLE") {
       if (allowMultiple !== undefined) {
         question.allowMultiple = !!allowMultiple;
       } else {
@@ -909,8 +807,8 @@ export const updateSurveyQuestion = async (req, res) => {
       question.allowMultiple = undefined;
     }
 
-    // Rating config (only for root rating questions)
-    if (!willHaveParent && finalType === "RATING") {
+    // Rating config
+    if (finalType === "RATING") {
       if (minRating !== undefined) question.minRating = Number(minRating) || 1;
       if (maxRating !== undefined) question.maxRating = Number(maxRating) || 5;
       if (ratingStep !== undefined)

@@ -63,25 +63,32 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
 
     switch (q.type) {
       case "OPEN_ENDED": {
-        if (!a.answerText || typeof a.answerText !== "string") {
-          const err = new Error(
-            `answerText is required for OPEN_ENDED question: ${q.questionText}`
-          );
-          err.status = 400;
-          throw err;
+        const text = typeof a.answerText === "string" ? a.answerText.trim() : "";
+        if (!text) {
+          if (q.required) {
+            const err = new Error(
+              `answerText is required for OPEN_ENDED question: ${q.questionText}`
+            );
+            err.status = 400;
+            throw err;
+          }
+          continue;
         }
-        entry.answerText = a.answerText;
+        entry.answerText = text;
         break;
       }
 
       case "RATING": {
         const rating = Number(a.rating);
-        if (Number.isNaN(rating)) {
-          const err = new Error(
-            `rating (number) is required for RATING question: ${q.questionText}`
-          );
-          err.status = 400;
-          throw err;
+        if (Number.isNaN(rating) || a.rating === undefined || a.rating === null) {
+          if (q.required) {
+            const err = new Error(
+              `rating (number) is required for RATING question: ${q.questionText}`
+            );
+            err.status = 400;
+            throw err;
+          }
+          continue;
         }
         if (
           typeof q.minRating === "number" &&
@@ -108,11 +115,14 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
         }
 
         if (!opt || typeof opt !== "string") {
-          const err = new Error(
-            `selectedOption is required for question: ${q.questionText}`
-          );
-          err.status = 400;
-          throw err;
+          if (q.required) {
+            const err = new Error(
+              `selectedOption is required for question: ${q.questionText}`
+            );
+            err.status = 400;
+            throw err;
+          }
+          continue;
         }
 
         const optionsFromDb = Array.isArray(q.options) ? q.options : [];
@@ -140,6 +150,7 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
           entry.otherText = otherText;
         }
 
+        entry.selectedOption = opt;
         entry.selectedOptions = [opt];
         break;
       }
@@ -149,11 +160,14 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
           ? a.selectedOptions
           : [];
         if (!opts.length) {
-          const err = new Error(
-            `selectedOptions (array) is required for CHECKBOX question: ${q.questionText}`
-          );
-          err.status = 400;
-          throw err;
+          if (q.required) {
+            const err = new Error(
+              `selectedOptions (array) is required for CHECKBOX question: ${q.questionText}`
+            );
+            err.status = 400;
+            throw err;
+          }
+          continue;
         }
         if (!Array.isArray(q.options)) {
           const err = new Error(
@@ -627,6 +641,7 @@ export const listUserSurveySummary = async (req, res) => {
         questionText: a.questionText,
         questionType: a.questionType,
         answerText: a.answerText,
+        selectedOption: a.selectedOption,
         selectedOptions: a.selectedOptions,
         rating: a.rating,
         otherText: a.otherText,
@@ -945,6 +960,7 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
         questionText: a.questionText,
         questionType: a.questionType,
         answerText: a.answerText,
+        selectedOption: a.selectedOption,
         selectedOptions: a.selectedOptions,
         rating: a.rating,
         otherText: a.otherText,
@@ -1058,6 +1074,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         questionText: a.questionText,
         questionType: a.questionType,
         answerText: a.answerText,
+        selectedOption: a.selectedOption,
         selectedOptions: a.selectedOptions,
         rating: a.rating,
         otherText: a.otherText,
