@@ -74,8 +74,8 @@ export const createUserByAdmin = async (req, res) => {
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
     const userCode = generateUserCode();
 
-    // ✅ profile pic from Cloudinary (multer single)
-    const profilePhotoUrl = req.file?.path;
+    // ✅ profile pic from S3 / multer
+    const profilePhotoUrl = req.file?.location || req.file?.path;
 
     const user = await User.create({
       userCode,

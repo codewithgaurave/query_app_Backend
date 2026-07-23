@@ -38,7 +38,8 @@ export const punchIn = async (req, res) => {
         .json({ message: "Active SURVEY_USER not found for this userCode." });
     }
 
-    if (!req.file || !req.file.path) {
+    const photoUrl = req.file?.location || req.file?.path;
+    if (!req.file || !photoUrl) {
       return res
         .status(400)
         .json({ message: "Punch-in image (photo) required." });
@@ -69,7 +70,7 @@ export const punchIn = async (req, res) => {
       // ✅ Update same-day record
       existingPunch.latitude = lat;
       existingPunch.longitude = lng;
-      existingPunch.photoUrl = req.file.path;
+      existingPunch.photoUrl = photoUrl;
       punch = await existingPunch.save();
 
       return res.status(200).json({
@@ -83,7 +84,7 @@ export const punchIn = async (req, res) => {
         userCode: user.userCode,
         latitude: lat,
         longitude: lng,
-        photoUrl: req.file.path,
+        photoUrl: photoUrl,
       });
 
       return res.status(201).json({

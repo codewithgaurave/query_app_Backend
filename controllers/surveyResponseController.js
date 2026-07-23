@@ -264,7 +264,8 @@ export const submitSurveyResponse = async (req, res) => {
       return res.status(404).json({ message: "Survey not found." });
     }
 
-    if (!req.file || !req.file.path) {
+    const audioUrl = req.file?.location || req.file?.path;
+    if (!req.file || !audioUrl) {
       return res
         .status(400)
         .json({ message: "Audio recording (audio) is required." });
@@ -327,7 +328,7 @@ export const submitSurveyResponse = async (req, res) => {
       userName: user.fullName,
       userMobile: user.mobile,
       userRole: user.role,
-      audioUrl: req.file.path,
+      audioUrl: audioUrl,
       // ✅ location (optional)
       latitude: latitudeNum,
       longitude: longitudeNum,
@@ -376,7 +377,8 @@ export const submitBulkSurveyResponses = async (req, res) => {
       return res.status(404).json({ message: "Survey not found." });
     }
 
-    if (!req.file || !req.file.path) {
+    const bulkAudioUrl = req.file?.location || req.file?.path;
+    if (!req.file || !bulkAudioUrl) {
       return res
         .status(400)
         .json({ message: "Audio recording (audio) is required." });
@@ -455,7 +457,7 @@ export const submitBulkSurveyResponses = async (req, res) => {
         userName: user.fullName,
         userMobile: user.mobile,
         userRole: user.role,
-        audioUrl: req.file.path, // same audio for all in this bulk
+        audioUrl: bulkAudioUrl, // same audio for all in this bulk
         latitude: latitudeNum,
         longitude: longitudeNum,
         isCompleted: true,

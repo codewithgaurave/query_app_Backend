@@ -13,7 +13,7 @@ import {
   resetUserPasswordByAdmin, // 🔐 NEW IMPORT
 } from "../controllers/userController.js";
 import { requireAuth } from "../middleware/auth.js";
-import { uploadUserFields } from "../config/cloudinary.js";
+import { uploadUserFields } from "../middleware/upload.js";
 
 const router = express.Router();
 

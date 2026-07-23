@@ -28,7 +28,7 @@ import {
     publicDeleteDashboardPinnedQuestion, 
 } from "../controllers/surveyResponseController.js";
 import { requireAuth } from "../middleware/auth.js";
-import { uploadSurveyAudio } from "../config/cloudinary.js";
+import { uploadSurveyAudio } from "../middleware/upload.js";
 
 const router = express.Router();
 

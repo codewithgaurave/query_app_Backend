@@ -5,7 +5,7 @@ import {
   getUserPunchHistory,
   getAllPunchHistory,
 } from "../controllers/punchInController.js";
-import { uploadPunchinPhoto } from "../config/cloudinary.js";
+import { uploadPunchinPhoto } from "../middleware/upload.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = express.Router();
