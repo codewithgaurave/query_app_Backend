@@ -377,12 +377,8 @@ export const submitBulkSurveyResponses = async (req, res) => {
       return res.status(404).json({ message: "Survey not found." });
     }
 
-    const bulkAudioUrl = req.file?.location || req.file?.path;
-    if (!req.file || !bulkAudioUrl) {
-      return res
-        .status(400)
-        .json({ message: "Audio recording (audio) is required." });
-    }
+    // ✅ FIXED: Audio is optional for bulk (offline) submissions
+    const bulkAudioUrl = req.file?.location || req.file?.path || "";
 
     // responses: JSON string of array
     let parsedResponses;
@@ -408,11 +404,25 @@ export const submitBulkSurveyResponses = async (req, res) => {
     const questionMap = new Map(questions.map((q) => [String(q._id), q]));
 
     const createdResponses = [];
+    const skippedDuplicates = [];
 
     // Har item ek logical SurveyResponse hoga
     for (let i = 0; i < parsedResponses.length; i++) {
       const item = parsedResponses[i] || {};
       const answers = item.answers;
+      // ✅ Idempotency key to prevent duplicate uploads on retry
+      const clientSubmissionId = item.clientSubmissionId || null;
+
+      // ✅ Check for duplicate by clientSubmissionId before processing
+      if (clientSubmissionId) {
+        const existing = await SurveyResponse.findOne({ clientSubmissionId }).lean();
+        if (existing) {
+          console.warn(`⚠️ Duplicate upload detected for clientSubmissionId: ${clientSubmissionId} - skipping`);
+          skippedDuplicates.push({ index: i, responseId: existing._id, reason: 'duplicate' });
+          createdResponses.push({ index: i, responseId: existing._id, alreadyUploaded: true });
+          continue;
+        }
+      }
 
       // per-response location parse
       let latitudeNum;
@@ -440,37 +450,44 @@ export const submitBulkSurveyResponses = async (req, res) => {
       try {
         normalizedAnswers = normalizeSurveyAnswers(answers, questionMap);
       } catch (e) {
-        return res
-          .status(e.status || 400)
-          .json({
-            message: `Response index ${i}: ${
-              e.message || "Invalid answers."
-            }`,
-          });
+        // ✅ Skip this response instead of failing entire batch
+        console.warn(`⚠️ Skipping response index ${i}: ${e.message}`);
+        continue;
       }
 
-      const responseDoc = await SurveyResponse.create({
-        survey: survey._id,
-        surveyCode: survey.surveyCode,
-        user: user._id,
-        userCode: user.userCode,
-        userName: user.fullName,
-        userMobile: user.mobile,
-        userRole: user.role,
-        audioUrl: bulkAudioUrl, // same audio for all in this bulk
-        latitude: latitudeNum,
-        longitude: longitudeNum,
-        isCompleted: true,
-        answers: normalizedAnswers,
-        approvalStatus: APPROVAL_STATUS.PENDING,
-        isApproved: false,
-        approvedBy: null,
-      });
+      try {
+        const responseDoc = await SurveyResponse.create({
+          survey: survey._id,
+          surveyCode: survey.surveyCode,
+          user: user._id,
+          userCode: user.userCode,
+          userName: user.fullName,
+          userMobile: user.mobile,
+          userRole: user.role,
+          audioUrl: bulkAudioUrl, // same audio for all in this bulk
+          latitude: latitudeNum,
+          longitude: longitudeNum,
+          isCompleted: true,
+          answers: normalizedAnswers,
+          approvalStatus: APPROVAL_STATUS.PENDING,
+          isApproved: false,
+          approvedBy: null,
+          clientSubmissionId: clientSubmissionId || undefined,
+        });
 
-      createdResponses.push({
-        index: i,
-        responseId: responseDoc._id,
-      });
+        createdResponses.push({
+          index: i,
+          responseId: responseDoc._id,
+        });
+      } catch (createErr) {
+        // ✅ Handle duplicate key error gracefully (race condition)
+        if (createErr.code === 11000 && createErr.keyPattern?.clientSubmissionId) {
+          console.warn(`⚠️ Race condition duplicate for index ${i}: ${clientSubmissionId}`);
+          skippedDuplicates.push({ index: i, reason: 'duplicate_race' });
+          continue;
+        }
+        throw createErr;
+      }
     }
 
     return res.status(201).json({

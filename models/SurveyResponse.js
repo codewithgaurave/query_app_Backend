@@ -63,6 +63,9 @@ const surveyResponseSchema = new mongoose.Schema(
     latitude: { type: Number },
     longitude: { type: Number },
 
+    // ✅ Idempotency key from Flutter to prevent duplicate uploads on retry
+    clientSubmissionId: { type: String, index: true, sparse: true },
+
     isCompleted: { type: Boolean, default: true },
 
     approvalStatus: {
@@ -98,6 +101,8 @@ const surveyResponseSchema = new mongoose.Schema(
 
 // fast lookup
 surveyResponseSchema.index({ survey: 1, userCode: 1 });
+// ✅ Unique sparse index to prevent duplicate uploads
+surveyResponseSchema.index({ clientSubmissionId: 1 }, { unique: true, sparse: true });
 
 // keep isApproved + approvedAt in sync ONLY on create/save
 surveyResponseSchema.pre("save", function (next) {
