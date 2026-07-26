@@ -241,10 +241,23 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
 export const submitSurveyResponse = async (req, res) => {
   try {
     const { surveyIdOrCode } = req.params;
-    const { userCode, answers, latitude, longitude } = req.body;
+    const { userCode, answers, latitude, longitude, clientSubmissionId } = req.body;
 
     if (!userCode) {
       return res.status(400).json({ message: "userCode is required." });
+    }
+
+    // ✅ Idempotency key to prevent duplicate uploads on retry
+    if (clientSubmissionId) {
+      const existing = await SurveyResponse.findOne({ clientSubmissionId }).lean();
+      if (existing) {
+        console.warn(`⚠️ Duplicate upload detected for clientSubmissionId: ${clientSubmissionId} - skipping`);
+        return res.status(201).json({
+          message: "Survey response submitted successfully",
+          responseId: existing._id,
+          alreadyUploaded: true,
+        });
+      }
     }
 
     const user = await User.findOne({
@@ -334,10 +347,10 @@ export const submitSurveyResponse = async (req, res) => {
       longitude: longitudeNum,
       isCompleted: true,
       answers: normalizedAnswers,
-      // ✅ approval defaults
       approvalStatus: APPROVAL_STATUS.PENDING,
       isApproved: false,
       approvedBy: null,
+      clientSubmissionId: clientSubmissionId || undefined,
     });
 
     return res.status(201).json({
