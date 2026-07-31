@@ -28,7 +28,7 @@ import {
     publicDeleteDashboardPinnedQuestion, 
 } from "../controllers/surveyResponseController.js";
 import { requireAuth } from "../middleware/auth.js";
-import { uploadSurveyAudio } from "../middleware/upload.js";
+import upload, { uploadSurveyAudio } from "../middleware/upload.js";
 
 const router = express.Router();
 
@@ -94,6 +94,26 @@ router.post(
   requireAuth,
   requireAdminOnly,
   duplicateSurvey
+);
+
+// ✅ Upload party symbol image (Admin)
+router.post(
+  "/upload-symbol",
+  requireAuth,
+  requireAdminOnly,
+  upload.single("image"),
+  (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+      const url = req.file.location || req.file.path;
+      return res.json({ message: "Symbol uploaded successfully", url });
+    } catch (err) {
+      console.error("upload-symbol error:", err);
+      return res.status(500).json({ message: "Failed to upload symbol" });
+    }
+  }
 );
 
 // ✅ Add question (Admin)

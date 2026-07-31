@@ -38,6 +38,14 @@ const surveyQuestionSchema = new mongoose.Schema(
       },
     ],
 
+    // Optional party symbols / images per option
+    optionSymbols: [
+      {
+        option: { type: String, trim: true },
+        symbolUrl: { type: String, trim: true },
+      },
+    ],
+
     // For MCQ_SINGLE / CHECKBOX behavior
     allowMultiple: {
       type: Boolean,

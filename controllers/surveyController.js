@@ -466,6 +466,7 @@ export const addSurveyQuestion = async (req, res) => {
       questionText,
       type,
       options,
+      optionSymbols,
       allowMultiple,
       minRating,
       maxRating,
@@ -578,6 +579,11 @@ export const addSurveyQuestion = async (req, res) => {
           .json({ message: "options are required for this question type." });
       }
       doc.options = options;
+      if (Array.isArray(optionSymbols)) {
+        doc.optionSymbols = optionSymbols.filter(
+          (item) => item && typeof item.option === "string" && typeof item.symbolUrl === "string"
+        );
+      }
 
       if (typeof enableOtherOption === "boolean") {
         doc.enableOtherOption = enableOtherOption;
@@ -614,6 +620,7 @@ export const addSurveyQuestion = async (req, res) => {
       parentQuestion: question.parentQuestion || null,
       parentOptionValue: question.parentOptionValue || "",
       options: question.options || [],
+      optionSymbols: question.optionSymbols || [],
       allowMultiple: question.allowMultiple || false,
       minRating: question.minRating,
       maxRating: question.maxRating,
@@ -649,6 +656,7 @@ export const updateSurveyQuestion = async (req, res) => {
       questionText,
       type,
       options,
+      optionSymbols,
       allowMultiple,
       minRating,
       maxRating,
@@ -778,6 +786,16 @@ export const updateSurveyQuestion = async (req, res) => {
         question.options = options;
       }
 
+      if (optionSymbols !== undefined) {
+        if (Array.isArray(optionSymbols)) {
+          question.optionSymbols = optionSymbols.filter(
+            (item) => item && typeof item.option === "string" && typeof item.symbolUrl === "string"
+          );
+        } else {
+          question.optionSymbols = [];
+        }
+      }
+
       if (typeof enableOtherOption === "boolean") {
         question.enableOtherOption = enableOtherOption;
       }
@@ -789,6 +807,7 @@ export const updateSurveyQuestion = async (req, res) => {
       // Non-option types (OPEN_ENDED / RATING etc)
       question.enableOtherOption = false;
       question.otherOptionLabel = undefined;
+      question.optionSymbols = [];
       if (!["OPEN_ENDED", "RATING"].includes(finalType)) {
         question.options = [];
       }
@@ -837,6 +856,7 @@ export const updateSurveyQuestion = async (req, res) => {
 
     if (OPTION_BASED_TYPES.includes(question.type)) {
       cleanQuestion.options = question.options;
+      cleanQuestion.optionSymbols = question.optionSymbols || [];
       cleanQuestion.enableOtherOption = question.enableOtherOption;
       cleanQuestion.otherOptionLabel = question.otherOptionLabel;
     }
@@ -1080,6 +1100,7 @@ export const getSurveyWithQuestions = async (req, res) => {
 
       if (OPTION_BASED_TYPES.includes(q.type)) {
         base.options = q.options;
+        base.optionSymbols = q.optionSymbols || [];
         base.enableOtherOption = q.enableOtherOption;
         base.otherOptionLabel = q.otherOptionLabel;
       }
