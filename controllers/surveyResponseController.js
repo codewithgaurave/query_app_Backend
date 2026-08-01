@@ -1057,9 +1057,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         latitude: 1,
         longitude: 1,
       }
-    )
-      .sort({ createdAt: -1 })
-      .lean();
+    ).lean();
 
     if (!responses || !responses.length) {
       return res.json({ surveys: [] });
