@@ -1061,35 +1061,74 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    if (!responses.length) {
+    if (!responses || !responses.length) {
       return res.json({ surveys: [] });
     }
 
-    const surveyIds = [...new Set(responses.map((r) => String(r.survey)))];
+    // Filter only valid ObjectIds to prevent Mongoose CastError on null/undefined/invalid values
+    const validSurveyObjectIds = [
+      ...new Set(
+        responses
+          .filter((r) => r.survey && mongoose.Types.ObjectId.isValid(r.survey))
+          .map((r) => String(r.survey))
+      ),
+    ];
 
-    const surveys = await Survey.find(
-      { _id: { $in: surveyIds } },
-      {
-        name: 1,
-        surveyCode: 1,
-        description: 1,
-        status: 1,
-        category: 1,
-        projectName: 1,
-      }
-    ).lean();
+    const validSurveyCodes = [
+      ...new Set(
+        responses
+          .filter((r) => r.surveyCode)
+          .map((r) => String(r.surveyCode))
+      ),
+    ];
 
-    const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
+    const queryConditions = [];
+    if (validSurveyObjectIds.length) {
+      queryConditions.push({ _id: { $in: validSurveyObjectIds } });
+    }
+    if (validSurveyCodes.length) {
+      queryConditions.push({ surveyCode: { $in: validSurveyCodes } });
+    }
+
+    let surveys = [];
+    if (queryConditions.length) {
+      surveys = await Survey.find(
+        { $or: queryConditions },
+        {
+          name: 1,
+          surveyCode: 1,
+          description: 1,
+          status: 1,
+          category: 1,
+          projectName: 1,
+        }
+      ).lean();
+    }
+
+    const surveyMap = new Map();
+    for (const s of surveys) {
+      if (s._id) surveyMap.set(String(s._id), s);
+      if (s.surveyCode) surveyMap.set(String(s.surveyCode), s);
+    }
 
     const grouped = new Map();
 
     for (const r of responses) {
-      const key = String(r.survey);
+      const key =
+        r.survey && mongoose.Types.ObjectId.isValid(r.survey)
+          ? String(r.survey)
+          : r.surveyCode
+          ? String(r.surveyCode)
+          : null;
+
+      if (!key) continue;
       const s = surveyMap.get(key);
       if (!s) continue;
 
-      if (!grouped.has(key)) {
-        grouped.set(key, {
+      const groupKey = String(s._id);
+
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, {
           surveyId: s._id,
           surveyCode: s.surveyCode,
           name: s.name,
@@ -1101,7 +1140,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         });
       }
 
-      const answers = (r.answers || []).map((a) => ({
+      const answers = (r.answers || []).filter(Boolean).map((a) => ({
         questionId: a.question,
         questionText: a.questionText,
         questionType: a.questionType,
@@ -1112,7 +1151,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         otherText: a.otherText,
       }));
 
-      grouped.get(key).responses.push({
+      grouped.get(groupKey).responses.push({
         responseId: r._id,
         userCode: r.userCode,
         userName: r.userName,
@@ -1132,8 +1171,8 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
     }
 
     const result = Array.from(grouped.values()).sort((a, b) => {
-      const lastA = a.responses[0]?.createdAt || 0;
-      const lastB = b.responses[0]?.createdAt || 0;
+      const lastA = a.responses[0]?.createdAt ? new Date(a.responses[0].createdAt).getTime() : 0;
+      const lastB = b.responses[0]?.createdAt ? new Date(b.responses[0].createdAt).getTime() : 0;
       return lastB - lastA;
     });
 
