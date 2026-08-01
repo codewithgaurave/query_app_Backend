@@ -1179,7 +1179,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
     return res.json({ surveys: result });
   } catch (err) {
     console.error("publicSurveyResponsesWithApproval error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error", error: err.message, details: String(err) });
   }
 };
 
