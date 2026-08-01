@@ -45,18 +45,11 @@ export const punchIn = async (req, res) => {
         .json({ message: "Punch-in image (photo) required." });
     }
 
-    // ✅ Date-based day boundary (calendar date, not 24 hours)
-    const now = new Date();
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate()
-    );
-    const endOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1
-    );
+    // ✅ Date-based day boundary (IST calendar date)
+    const istDateStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const [year, month, day] = istDateStr.split("-").map(Number);
+    const startOfDay = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - (5.5 * 60 * 60 * 1000));
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
 
     // Check if there is already a punch-in today for this user
     const existingPunch = await PunchIn.findOne({

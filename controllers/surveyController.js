@@ -10,15 +10,12 @@ import User from "../models/User.js";
 const generateSurveyCode = () =>
   "SRV-" + crypto.randomBytes(4).toString("hex").toUpperCase();
 
-// helper: aaj ka startOfDay / endOfDay nikalne ke liye (calendar day based)
+// helper: aaj ka startOfDay / endOfDay nikalne ke liye (IST calendar day based)
 const getTodayRange = () => {
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfDay = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1
-  );
+  const istDateStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const [year, month, day] = istDateStr.split("-").map(Number);
+  const startOfDay = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - (5.5 * 60 * 60 * 1000));
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
   return { startOfDay, endOfDay };
 };
 
