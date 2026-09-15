@@ -46,9 +46,8 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
     const q = questionMap.get(qId);
 
     if (!q) {
-      const err = new Error(`Invalid questionId "${qId}" for this survey.`);
-      err.status = 400;
-      throw err;
+      console.warn(`⚠️ Skipping unknown/deleted questionId "${qId}" for survey.`);
+      continue;
     }
 
     const entry = {
@@ -63,7 +62,15 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
 
     switch (q.type) {
       case "OPEN_ENDED": {
-        const text = typeof a.answerText === "string" ? a.answerText.trim() : "";
+        const text = typeof a.answerText === "string" && a.answerText.trim().length > 0
+          ? a.answerText.trim()
+          : (typeof a.selectedOption === "string" && a.selectedOption.trim().length > 0
+              ? a.selectedOption.trim()
+              : (typeof a.response === "string" && a.response.trim().length > 0
+                  ? a.response.trim()
+                  : (typeof a.value === "string" && a.value.trim().length > 0
+                      ? a.value.trim()
+                      : "")));
         if (!text) {
           if (q.required) {
             const err = new Error(
@@ -79,8 +86,8 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
       }
 
       case "RATING": {
-        const rating = Number(a.rating);
-        if (Number.isNaN(rating) || a.rating === undefined || a.rating === null) {
+        const rating = Number(a.rating !== undefined ? a.rating : (a.response !== undefined ? a.response : a.value));
+        if (Number.isNaN(rating) || rating === undefined || rating === null) {
           if (q.required) {
             const err = new Error(
               `rating (number) is required for RATING question: ${q.questionText}`
@@ -118,7 +125,13 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
           ? a.selectedOptions.filter((o) => typeof o === "string" && o.trim().length > 0)
           : (typeof a.selectedOption === "string" && a.selectedOption.trim().length > 0
               ? [a.selectedOption.trim()]
-              : []);
+              : (typeof a.answerText === "string" && a.answerText.trim().length > 0
+                  ? [a.answerText.trim()]
+                  : (typeof a.response === "string" && a.response.trim().length > 0
+                      ? [a.response.trim()]
+                      : (typeof a.value === "string" && a.value.trim().length > 0
+                          ? [a.value.trim()]
+                          : []))));
 
         if (!incomingOpts.length) {
           if (q.required) {
@@ -181,11 +194,19 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
         const isOtherSelected = hasOther && opt === otherLabel;
 
         if (!isNormalOption && !isOtherSelected) {
-          const err = new Error(
-            `selectedOption "${opt}" is not valid for question: ${q.questionText}`
-          );
-          err.status = 400;
-          throw err;
+          // If option text doesn't strictly match optionsFromDb list but was answered, check case-insensitive match
+          const matchedOpt = optionsFromDb.find((o) => o.trim().toLowerCase() === opt.toLowerCase());
+          if (matchedOpt) {
+            entry.selectedOption = matchedOpt;
+          } else {
+            const err = new Error(
+              `Invalid selectedOption "${opt}" for question: ${q.questionText}`
+            );
+            err.status = 400;
+            throw err;
+          }
+        } else {
+          entry.selectedOption = opt;
         }
 
         if (isOtherSelected) {
@@ -201,7 +222,6 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
           entry.otherText = otherText;
         }
 
-        entry.selectedOption = opt;
         entry.selectedOptions = incomingOpts;
         break;
       }
@@ -469,6 +489,7 @@ export const submitBulkSurveyResponses = async (req, res) => {
 
     const createdResponses = [];
     const skippedDuplicates = [];
+    const skippedErrors = [];
 
     // Har item ek logical SurveyResponse hoga
     for (let i = 0; i < parsedResponses.length; i++) {
@@ -516,6 +537,7 @@ export const submitBulkSurveyResponses = async (req, res) => {
       } catch (e) {
         // ✅ Skip this response instead of failing entire batch
         console.warn(`⚠️ Skipping response index ${i}: ${e.message}`);
+        skippedErrors.push(`Response ${i + 1}: ${e.message}`);
         continue;
       }
 
@@ -554,9 +576,19 @@ export const submitBulkSurveyResponses = async (req, res) => {
       }
     }
 
+    if (!createdResponses.length && skippedDuplicates.length === 0) {
+      return res.status(400).json({
+        message: skippedErrors.length > 0 ? skippedErrors.join("; ") : "No survey responses could be saved due to validation errors.",
+        createdResponses: [],
+        skippedErrors,
+      });
+    }
+
     return res.status(201).json({
       message: "Bulk survey responses submitted successfully",
       createdResponses,
+      skippedDuplicates,
+      skippedErrors,
     });
   } catch (err) {
     console.error("submitBulkSurveyResponses error:", err);
