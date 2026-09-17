@@ -666,13 +666,38 @@ export const listSurveyResponses = async (req, res) => {
         approvalStatus: 1,
         approvedBy: 1,
         createdAt: 1,
+        createdAtIST: 1,
+        updatedAtIST: 1,
         // ✅ location fields
         latitude: 1,
         longitude: 1,
+        address: 1,
       }
     )
       .sort({ createdAt: -1 })
       .lean();
+
+    const approverIds = [
+      ...new Set(responses.map((r) => r.approvedBy ? String(r.approvedBy) : null).filter(Boolean)),
+    ];
+    let approverMap = new Map();
+    if (approverIds.length > 0) {
+      const approvers = await User.find(
+        { _id: { $in: approverIds } },
+        { fullName: 1, userCode: 1 }
+      ).lean();
+      approverMap = new Map(approvers.map((u) => [String(u._id), u]));
+    }
+
+    const enrichedResponses = responses.map((r) => {
+      const approver = r.approvedBy ? approverMap.get(String(r.approvedBy)) : null;
+      return {
+        ...r,
+        responseId: r._id,
+        approvedByName: approver ? approver.fullName : null,
+        approvedByUserCode: approver ? approver.userCode : null,
+      };
+    });
 
     return res.json({
       survey: {
@@ -680,7 +705,7 @@ export const listSurveyResponses = async (req, res) => {
         surveyCode: survey.surveyCode,
         name: survey.name,
       },
-      responses,
+      responses: enrichedResponses,
     });
   } catch (err) {
     console.error("listSurveyResponses error:", err);
