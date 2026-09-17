@@ -59,6 +59,18 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
     // "Other" option related flags from question
     const hasOther = !!q.enableOtherOption;
     const otherLabel = (q.otherOptionLabel || "Other").trim();
+    const isOtherValue = (val) => {
+      if (!val || typeof val !== "string") return false;
+      const trimmed = val.trim();
+      return (
+        trimmed === otherLabel ||
+        trimmed.toLowerCase() === otherLabel.toLowerCase() ||
+        trimmed === "other_option" ||
+        trimmed.toLowerCase() === "other" ||
+        trimmed === "इतर" ||
+        trimmed === "अन्य"
+      );
+    };
 
     switch (q.type) {
       case "OPEN_ENDED": {
@@ -121,7 +133,9 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
           q.allowMultipleSelection === true ||
           q.isMultiple === true;
 
-        const incomingOpts = Array.isArray(a.selectedOptions) && a.selectedOptions.length
+        const rawOtherText = typeof a.otherText === "string" ? a.otherText.trim() : "";
+
+        let incomingOpts = Array.isArray(a.selectedOptions) && a.selectedOptions.length
           ? a.selectedOptions.filter((o) => typeof o === "string" && o.trim().length > 0)
           : (typeof a.selectedOption === "string" && a.selectedOption.trim().length > 0
               ? [a.selectedOption.trim()]
@@ -132,6 +146,22 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
                       : (typeof a.value === "string" && a.value.trim().length > 0
                           ? [a.value.trim()]
                           : []))));
+
+        // If user typed otherText, ensure the other option is recognized
+        if (hasOther && rawOtherText.length > 0) {
+          if (!incomingOpts.length) {
+            incomingOpts = [otherLabel];
+          } else {
+            incomingOpts = incomingOpts.map((opt) => isOtherValue(opt) ? otherLabel : opt);
+            if (!incomingOpts.some(isOtherValue)) {
+              if (isMultipleAllowed) {
+                incomingOpts.push(otherLabel);
+              }
+            }
+          }
+        } else if (hasOther && incomingOpts.length > 0) {
+          incomingOpts = incomingOpts.map((opt) => isOtherValue(opt) ? otherLabel : opt);
+        }
 
         if (!incomingOpts.length) {
           if (q.required) {
@@ -153,7 +183,7 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
 
           for (const val of incomingOpts) {
             const isNormalOption = optionsFromDb.includes(val);
-            const isOtherSelected = hasOther && val === otherLabel;
+            const isOtherSelected = hasOther && isOtherValue(val);
             if (!isNormalOption && !isOtherSelected) {
               invalid.push(val);
             }
@@ -171,16 +201,14 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
           }
 
           if (usedOther) {
-            const otherText =
-              typeof a.otherText === "string" ? a.otherText.trim() : "";
-            if (!otherText) {
+            if (!rawOtherText) {
               const err = new Error(
                 `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
               );
               err.status = 400;
               throw err;
             }
-            entry.otherText = otherText;
+            entry.otherText = rawOtherText;
           }
 
           entry.selectedOption = incomingOpts[0];
@@ -191,7 +219,7 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
         // Single option handling
         const opt = incomingOpts[0];
         const isNormalOption = optionsFromDb.includes(opt);
-        const isOtherSelected = hasOther && opt === otherLabel;
+        const isOtherSelected = hasOther && isOtherValue(opt);
 
         if (!isNormalOption && !isOtherSelected) {
           // If option text doesn't strictly match optionsFromDb list but was answered, check case-insensitive match
@@ -206,30 +234,45 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
             throw err;
           }
         } else {
-          entry.selectedOption = opt;
+          entry.selectedOption = isOtherSelected ? otherLabel : opt;
         }
 
         if (isOtherSelected) {
-          const otherText =
-            typeof a.otherText === "string" ? a.otherText.trim() : "";
-          if (!otherText) {
+          if (!rawOtherText) {
             const err = new Error(
               `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
             );
             err.status = 400;
             throw err;
           }
-          entry.otherText = otherText;
+          entry.otherText = rawOtherText;
         }
 
-        entry.selectedOptions = incomingOpts;
+        entry.selectedOptions = [entry.selectedOption];
         break;
       }
 
       case "CHECKBOX": {
-        const opts = Array.isArray(a.selectedOptions)
-          ? a.selectedOptions
-          : [];
+        const rawOtherText = typeof a.otherText === "string" ? a.otherText.trim() : "";
+        let opts = Array.isArray(a.selectedOptions)
+          ? a.selectedOptions.filter((o) => typeof o === "string" && o.trim().length > 0)
+          : (typeof a.selectedOption === "string" && a.selectedOption.trim().length > 0
+              ? [a.selectedOption.trim()]
+              : []);
+
+        if (hasOther && rawOtherText.length > 0) {
+          if (!opts.length) {
+            opts = [otherLabel];
+          } else {
+            opts = opts.map((opt) => isOtherValue(opt) ? otherLabel : opt);
+            if (!opts.some(isOtherValue)) {
+              opts.push(otherLabel);
+            }
+          }
+        } else if (hasOther && opts.length > 0) {
+          opts = opts.map((opt) => isOtherValue(opt) ? otherLabel : opt);
+        }
+
         if (!opts.length) {
           if (q.required) {
             const err = new Error(
@@ -254,7 +297,7 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
 
         for (const val of opts) {
           const isNormalOption = optionsFromDb.includes(val);
-          const isOtherSelected = hasOther && val === otherLabel;
+          const isOtherSelected = hasOther && isOtherValue(val);
           if (!isNormalOption && !isOtherSelected) {
             invalid.push(val);
           }
@@ -274,16 +317,14 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
         }
 
         if (usedOther) {
-          const otherText =
-            typeof a.otherText === "string" ? a.otherText.trim() : "";
-          if (!otherText) {
+          if (!rawOtherText) {
             const err = new Error(
               `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
             );
             err.status = 400;
             throw err;
           }
-          entry.otherText = otherText;
+          entry.otherText = rawOtherText;
         }
 
         entry.selectedOptions = opts;
