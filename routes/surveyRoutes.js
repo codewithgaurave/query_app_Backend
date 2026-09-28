@@ -20,6 +20,7 @@ import {
   adminSurveyResponseSummary,
   approveSurveyResponse,
   getAssignedSurveyResponsesForQC, // ✅ NEW SECURE ROUTE FOR QC
+  getQCResponseDetail, // ✅ ON-DEMAND SINGLE RESPONSE DETAIL FOR QC
   // ⬇️ NEW PUBLIC CONTROLLERS
   publicSurveyResponsesWithApproval,
   publicSetSurveyResponseApproval,
@@ -54,6 +55,9 @@ const requireQualityEngineerOnly = (req, res, next) => {
 
 // ✅ SECURE QC PANEL: get only assigned surveys for the logged in QC
 router.get("/qc/responses/assigned", requireAuth, requireQualityEngineerOnly, getAssignedSurveyResponsesForQC);
+
+// ✅ SECURE QC PANEL: get single response detail on demand
+router.get("/qc/responses/:responseId", requireAuth, requireQualityEngineerOnly, getQCResponseDetail);
 
 // ✅ PUBLIC: list surveys for SURVEY_USER app (no token)
 // default: sirf ACTIVE surveys

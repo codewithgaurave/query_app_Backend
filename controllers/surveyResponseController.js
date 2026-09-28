@@ -1115,7 +1115,7 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
       }
     }
 
-    // Ab in surveys ke responses fetch karo
+    // Ab in surveys ke responses fetch karo (without heavy answers for lightning fast load)
     const responses = await SurveyResponse.find(
       responseQuery,
       {
@@ -1126,7 +1126,6 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
         userMobile: 1,
         userRole: 1,
         audioUrl: 1,
-        answers: 1,
         isCompleted: 1,
         isApproved: 1,
         approvalStatus: 1,
@@ -1160,17 +1159,6 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
       const sGroup = grouped.get(key);
       if (!sGroup) continue;
 
-      const answers = (r.answers || []).map((a) => ({
-        questionId: a.question,
-        questionText: a.questionText,
-        questionType: a.questionType,
-        answerText: a.answerText,
-        selectedOption: a.selectedOption,
-        selectedOptions: a.selectedOptions,
-        rating: a.rating,
-        otherText: a.otherText,
-      }));
-
       sGroup.responses.push({
         responseId: r._id,
         userCode: r.userCode,
@@ -1185,7 +1173,6 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
         approvalStatus: r.approvalStatus,
         approvedBy: r.approvedBy,
         createdAt: r.createdAt,
-        answers,
       });
     }
 
@@ -1198,6 +1185,59 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
     return res.json({ surveys: result });
   } catch (err) {
     console.error("getAssignedSurveyResponsesForQC error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * ✅ GET SINGLE RESPONSE DETAIL (WITH FULL ANSWERS) FOR QC / ADMIN
+ */
+export const getQCResponseDetail = async (req, res) => {
+  try {
+    const { responseId } = req.params;
+    const responseDoc = await SurveyResponse.findById(responseId, {
+      answers: 1,
+      audioUrl: 1,
+      latitude: 1,
+      longitude: 1,
+      approvalStatus: 1,
+      isApproved: 1,
+      userName: 1,
+      userCode: 1,
+      userMobile: 1,
+      userRole: 1,
+      createdAt: 1,
+      approvedBy: 1,
+      approvedAt: 1,
+      isCompleted: 1,
+      survey: 1,
+      surveyCode: 1,
+    }).lean();
+
+    if (!responseDoc) {
+      return res.status(404).json({ message: "Survey response not found" });
+    }
+
+    const answers = (responseDoc.answers || []).map((a) => ({
+      questionId: a.question,
+      questionText: a.questionText,
+      questionType: a.questionType,
+      answerText: a.answerText,
+      selectedOption: a.selectedOption,
+      selectedOptions: a.selectedOptions,
+      rating: a.rating,
+      otherText: a.otherText,
+    }));
+
+    return res.json({
+      response: {
+        ...responseDoc,
+        responseId: responseDoc._id,
+        answers,
+      },
+    });
+  } catch (err) {
+    console.error("getQCResponseDetail error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
