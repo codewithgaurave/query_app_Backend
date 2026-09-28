@@ -1049,9 +1049,23 @@ export const approveSurveyResponse = async (req, res) => {
 
 
 
+// Helper to convert date string (YYYY-MM-DD) to IST range in UTC
+const getISTDateRange = (dateStr) => {
+  if (!dateStr) return null;
+  const parts = String(dateStr).split("-").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return null;
+  const [year, month, day] = parts;
+  // IST offset is UTC+5:30 (5.5 * 3600 * 1000 ms)
+  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+  const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - IST_OFFSET);
+  const end = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - IST_OFFSET);
+  return { start, end };
+};
+
 /**
  * ✅ SECURE QC PANEL:
  * - Sirf wahi surveys ke responses layega jisme logged in QC assign hua hai
+ * - Supports server-side date filter for high performance
  */
 export const getAssignedSurveyResponsesForQC = async (req, res) => {
   try {
@@ -1060,21 +1074,50 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
+    const { date, startDate, endDate } = req.query;
+
     // Pehle wo surveys dhundo jisme yeh QC assign hua hai
     const assignedSurveys = await Survey.find(
       { assignedQCs: qcId },
-      { _id: 1 }
+      {
+        name: 1,
+        surveyCode: 1,
+        description: 1,
+        status: 1,
+        category: 1,
+        projectName: 1,
+      }
     ).lean();
 
     if (!assignedSurveys.length) {
       return res.json({ surveys: [] });
     }
 
-    const assignedSurveyIds = assignedSurveys.map(s => s._id);
+    const assignedSurveyIds = assignedSurveys.map((s) => s._id);
+
+    // Build response filter
+    const responseQuery = { survey: { $in: assignedSurveyIds } };
+
+    if (date) {
+      const range = getISTDateRange(date);
+      if (range) {
+        responseQuery.createdAt = { $gte: range.start, $lte: range.end };
+      }
+    } else if (startDate || endDate) {
+      responseQuery.createdAt = {};
+      if (startDate) {
+        const startRange = getISTDateRange(startDate);
+        if (startRange) responseQuery.createdAt.$gte = startRange.start;
+      }
+      if (endDate) {
+        const endRange = getISTDateRange(endDate);
+        if (endRange) responseQuery.createdAt.$lte = endRange.end;
+      }
+    }
 
     // Ab in surveys ke responses fetch karo
     const responses = await SurveyResponse.find(
-      { survey: { $in: assignedSurveyIds } },
+      responseQuery,
       {
         survey: 1,
         surveyCode: 1,
@@ -1096,45 +1139,26 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    if (!responses.length) {
-      return res.json({ surveys: [] });
-    }
-
-    const surveyIds = [...new Set(responses.map((r) => String(r.survey)))];
-
-    const surveys = await Survey.find(
-      { _id: { $in: surveyIds } },
-      {
-        name: 1,
-        surveyCode: 1,
-        description: 1,
-        status: 1,
-        category: 1,
-        projectName: 1,
-      }
-    ).lean();
-
-    const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
-
     const grouped = new Map();
+
+    for (const s of assignedSurveys) {
+      const key = String(s._id);
+      grouped.set(key, {
+        surveyId: s._id,
+        surveyCode: s.surveyCode,
+        name: s.name,
+        description: s.description,
+        status: s.status,
+        category: s.category,
+        projectName: s.projectName,
+        responses: [],
+      });
+    }
 
     for (const r of responses) {
       const key = String(r.survey);
-      const s = surveyMap.get(key);
-      if (!s) continue;
-
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          surveyId: s._id,
-          surveyCode: s.surveyCode,
-          name: s.name,
-          description: s.description,
-          status: s.status,
-          category: s.category,
-          projectName: s.projectName,
-          responses: [],
-        });
-      }
+      const sGroup = grouped.get(key);
+      if (!sGroup) continue;
 
       const answers = (r.answers || []).map((a) => ({
         questionId: a.question,
@@ -1147,7 +1171,7 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
         otherText: a.otherText,
       }));
 
-      grouped.get(key).responses.push({
+      sGroup.responses.push({
         responseId: r._id,
         userCode: r.userCode,
         userName: r.userName,
@@ -1168,7 +1192,7 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
     const result = Array.from(grouped.values()).sort((a, b) => {
       const lastA = a.responses[0]?.createdAt || 0;
       const lastB = b.responses[0]?.createdAt || 0;
-      return lastB - lastA;
+      return new Date(lastB) - new Date(lastA);
     });
 
     return res.json({ surveys: result });
@@ -1186,8 +1210,28 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
  */
 export const publicSurveyResponsesWithApproval = async (req, res) => {
   try {
+    const { date, startDate, endDate } = req.query;
+    const responseQuery = {};
+
+    if (date) {
+      const range = getISTDateRange(date);
+      if (range) {
+        responseQuery.createdAt = { $gte: range.start, $lte: range.end };
+      }
+    } else if (startDate || endDate) {
+      responseQuery.createdAt = {};
+      if (startDate) {
+        const startRange = getISTDateRange(startDate);
+        if (startRange) responseQuery.createdAt.$gte = startRange.start;
+      }
+      if (endDate) {
+        const endRange = getISTDateRange(endDate);
+        if (endRange) responseQuery.createdAt.$lte = endRange.end;
+      }
+    }
+
     const responses = await SurveyResponse.find(
-      {},
+      responseQuery,
       {
         survey: 1,
         surveyCode: 1,
@@ -1206,7 +1250,9 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         latitude: 1,
         longitude: 1,
       }
-    ).lean();
+    )
+      .sort({ createdAt: -1 })
+      .lean();
 
     if (!responses || !responses.length) {
       return res.json({ surveys: [] });

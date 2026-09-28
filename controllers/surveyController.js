@@ -1065,10 +1065,12 @@ export const getSurveyWithQuestions = async (req, res) => {
       }
     }
 
-    const rawQuestions = await SurveyQuestion.find({
-      survey: survey._id,
-      isActive: true,
-    })
+    const questionQuery = { survey: survey._id };
+    if (userCode) {
+      questionQuery.isActive = { $ne: false };
+    }
+
+    const rawQuestions = await SurveyQuestion.find(questionQuery)
       .sort({ order: 1, createdAt: 1 })
       .lean();
 

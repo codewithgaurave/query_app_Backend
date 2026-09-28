@@ -101,6 +101,9 @@ const surveyResponseSchema = new mongoose.Schema(
 
 // fast lookup
 surveyResponseSchema.index({ survey: 1, userCode: 1 });
+surveyResponseSchema.index({ survey: 1, createdAt: -1 });
+surveyResponseSchema.index({ survey: 1, approvalStatus: 1, createdAt: -1 });
+surveyResponseSchema.index({ createdAt: -1 });
 // ✅ Unique sparse index to prevent duplicate uploads
 surveyResponseSchema.index({ clientSubmissionId: 1 }, { unique: true, sparse: true });
 
