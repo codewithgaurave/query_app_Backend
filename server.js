@@ -69,9 +69,8 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 
-// ✅ CORS middleware + preflight OPTIONS handling
+// ✅ CORS middleware (Express 5 handles OPTIONS automatically via app.use)
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
 
 // 📜 Logs
 app.use(morgan("dev"));
