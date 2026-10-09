@@ -1275,12 +1275,12 @@ export const getQCResponseDetail = async (req, res) => {
  */
 export const publicSurveyResponsesWithApproval = async (req, res) => {
   try {
-    const { date, startDate, endDate, surveyId } = req.query;
+    const { date, startDate, endDate, surveyId, onlySurveys } = req.query;
     const responseQuery = {};
 
     if (surveyId) {
       if (mongoose.Types.ObjectId.isValid(surveyId)) {
-        responseQuery.survey = surveyId;
+        responseQuery.survey = new mongoose.Types.ObjectId(surveyId);
       } else {
         responseQuery.surveyCode = surveyId;
       }
@@ -1327,6 +1327,33 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
 
     if (!surveys.length) {
       return res.json({ surveys: [] });
+    }
+
+    // ⚡ ULTRA-FAST: If only surveys metadata/counts are needed or no specific survey is queried
+    if (!surveyId && (onlySurveys === "true" || (!date && !startDate && !endDate))) {
+      const countAgg = await SurveyResponse.aggregate([
+        {
+          $group: {
+            _id: "$survey",
+            count: { $sum: 1 },
+          },
+        },
+      ]);
+      const countMap = new Map(countAgg.map((c) => [String(c._id), c.count]));
+
+      const result = surveys.map((s) => ({
+        surveyId: s._id,
+        surveyCode: s.surveyCode,
+        name: s.name,
+        description: s.description,
+        status: s.status,
+        category: s.category,
+        projectName: s.projectName,
+        totalResponses: countMap.get(String(s._id)) || 0,
+        responses: [],
+      }));
+
+      return res.json({ surveys: result });
     }
 
     const surveyMap = new Map();
