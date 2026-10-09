@@ -213,6 +213,11 @@ export const updateSurvey = async (req, res) => {
       return res.status(404).json({ message: "Survey not found" });
     }
 
+    // Role check: Sub Admin can only edit their own survey
+    if (req.user?.role === "SUB_ADMIN" && String(survey.createdByAdmin) !== String(adminId)) {
+      return res.status(403).json({ message: "You do not have permission to edit this survey." });
+    }
+
     const update = {};
 
     if (typeof name === "string") update.name = name;
@@ -340,6 +345,10 @@ export const deleteSurvey = async (req, res) => {
       return res.status(404).json({ message: "Survey not found" });
     }
 
+    if (req.user?.role === "SUB_ADMIN" && String(survey.createdByAdmin) !== String(adminId)) {
+      return res.status(403).json({ message: "You do not have permission to delete this survey." });
+    }
+
     await SurveyQuestion.deleteMany({ survey: survey._id });
     await Survey.findByIdAndDelete(survey._id);
 
@@ -366,6 +375,10 @@ export const duplicateSurvey = async (req, res) => {
       return res.status(404).json({ message: "Survey not found" });
     }
 
+    if (req.user?.role === "SUB_ADMIN" && String(originalSurvey.createdByAdmin) !== String(adminId)) {
+      return res.status(403).json({ message: "You do not have permission to duplicate this survey." });
+    }
+
     // 1. Create the new duplicated survey
     const newSurveyCode = generateSurveyCode();
     
@@ -376,6 +389,7 @@ export const duplicateSurvey = async (req, res) => {
       surveyCode: newSurveyCode,
       name: `${originalSurvey.name} - Copy`,
       status: "DRAFT",
+      createdByAdmin: adminId,
       startDate: undefined,
       endDate: undefined,
       createdAt: undefined,
@@ -495,6 +509,10 @@ export const addSurveyQuestion = async (req, res) => {
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
     if (!survey) {
       return res.status(404).json({ message: "Survey not found." });
+    }
+
+    if (req.user?.role === "SUB_ADMIN" && String(survey.createdByAdmin) !== String(adminId)) {
+      return res.status(403).json({ message: "You do not have permission to add questions to this survey." });
     }
 
     const OPTION_BASED_TYPES = [
@@ -671,6 +689,13 @@ export const updateSurveyQuestion = async (req, res) => {
     const question = await SurveyQuestion.findById(questionId);
     if (!question) {
       return res.status(404).json({ message: "Question not found." });
+    }
+
+    if (req.user?.role === "SUB_ADMIN") {
+      const parentSurvey = await Survey.findById(question.survey);
+      if (parentSurvey && String(parentSurvey.createdByAdmin) !== String(adminId)) {
+        return res.status(403).json({ message: "You do not have permission to update this question." });
+      }
     }
 
     const OPTION_BASED_TYPES = [
@@ -897,6 +922,13 @@ export const deleteSurveyQuestion = async (req, res) => {
       return res.status(404).json({ message: "Question not found." });
     }
 
+    if (req.user?.role === "SUB_ADMIN") {
+      const parentSurvey = await Survey.findById(question.survey);
+      if (parentSurvey && String(parentSurvey.createdByAdmin) !== String(adminId)) {
+        return res.status(403).json({ message: "You do not have permission to delete this question." });
+      }
+    }
+
     await SurveyQuestion.findByIdAndDelete(questionId);
 
     return res.json({
@@ -916,8 +948,17 @@ export const listSurveys = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
+    let filter = {};
+    if (req.user?.role === "SUB_ADMIN") {
+      filter.createdByAdmin = adminId;
+    } else if (req.user?.role === "SUPER_ADMIN") {
+      if (req.query.subAdminId) {
+        filter.createdByAdmin = req.query.subAdminId;
+      }
+    }
+
     const surveys = await Survey.find(
-      {},
+      filter,
       {
         surveyCode: 1,
         name: 1,
@@ -931,9 +972,13 @@ export const listSurveys = async (req, res) => {
         isActive: 1,
         createdAt: 1,
         assignedUsers: 1,
+        assignedQCs: 1,
+        createdByAdmin: 1,
       }
     )
       .populate("assignedUsers", "fullName mobile userCode role isActive")
+      .populate("assignedQCs", "fullName mobile userCode role isActive")
+      .populate("createdByAdmin", "adminId name role mobile email")
       .sort({ createdAt: -1 })
       .lean();
 

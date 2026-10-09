@@ -651,6 +651,11 @@ export const listSurveyResponses = async (req, res) => {
       return res.status(404).json({ message: "Survey not found" });
     }
 
+    // Role check: Sub Admin can only view responses for their own surveys
+    if (req.user?.role === "SUB_ADMIN" && String(survey.createdByAdmin) !== String(adminId)) {
+      return res.status(403).json({ message: "You do not have permission to view responses for this survey." });
+    }
+
     const responses = await SurveyResponse.find(
       { survey: survey._id },
       {
@@ -887,8 +892,6 @@ export const listUserSurveySummary = async (req, res) => {
   }
 };
 
-
-
 // ✅ Admin summary — har survey pe kitne responses + kis user ne diye
 export const adminSurveyResponseSummary = async (req, res) => {
   try {
@@ -897,7 +900,20 @@ export const adminSurveyResponseSummary = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const grouped = await SurveyResponse.aggregate([
+    // Role-based matching
+    const pipeline = [];
+
+    if (req.user?.role === "SUB_ADMIN") {
+      const subAdminSurveys = await Survey.find({ createdByAdmin: adminId }).select("_id").lean();
+      const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
+      pipeline.push({ $match: { survey: { $in: subAdminSurveyIds } } });
+    } else if (req.user?.role === "SUPER_ADMIN" && req.query.subAdminId) {
+      const subAdminSurveys = await Survey.find({ createdByAdmin: req.query.subAdminId }).select("_id").lean();
+      const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
+      pipeline.push({ $match: { survey: { $in: subAdminSurveyIds } } });
+    }
+
+    pipeline.push(
       {
         $group: {
           _id: "$survey",
@@ -913,8 +929,10 @@ export const adminSurveyResponseSummary = async (req, res) => {
           lastResponseAt: { $max: "$createdAt" },
         },
       },
-      { $sort: { lastResponseAt: -1 } },
-    ]);
+      { $sort: { lastResponseAt: -1 } }
+    );
+
+    const grouped = await SurveyResponse.aggregate(pipeline);
 
     if (!grouped.length) {
       return res.json({ surveys: [] });
@@ -929,8 +947,13 @@ export const adminSurveyResponseSummary = async (req, res) => {
         status: 1,
         category: 1,
         projectName: 1,
+        createdByAdmin: 1,
+        assignedQCs: 1,
       }
-    ).lean();
+    )
+      .populate("createdByAdmin", "adminId name role mobile email")
+      .populate("assignedQCs", "fullName mobile userCode role isActive")
+      .lean();
 
     const surveyMap = new Map(surveys.map((s) => [String(s._id), s]));
 
@@ -946,6 +969,8 @@ export const adminSurveyResponseSummary = async (req, res) => {
           status: s.status,
           category: s.category,
           projectName: s.projectName,
+          createdByAdmin: s.createdByAdmin,
+          assignedQCs: s.assignedQCs || [],
           totalResponses: g.totalResponses,
           users: g.users,
           lastResponseAt: g.lastResponseAt,

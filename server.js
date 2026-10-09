@@ -26,12 +26,26 @@ const allowedOrigins = [
   "https://query-admin-panel.onrender.com",
   "https://qc.o3consulting.in",
   "https://admin.o3consulting.in",
+  "http://localhost:5173",
   "http://localhost:5174",
-  "http://localhost:5173"
+  "http://localhost:5175",
+  "http://localhost:5176",
+  "http://localhost:3000"
 ];
 
 const corsOptions = {
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) return callback(null, true);
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:")
+    ) {
+      return callback(null, true);
+    }
+    return callback(new Error("Not allowed by CORS"));
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,

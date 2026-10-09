@@ -53,12 +53,26 @@ export const getAdminDashboardOverview = async (req, res) => {
       return res.status(auth.status).json({ message: auth.message });
     }
 
-    const { range = "30d" } = req.query;
+    const { range = "30d", subAdminId } = req.query;
     const rangeMap = { "7d": 7, "30d": 30, "90d": 90, "180d": 180 };
     const days = rangeMap[range] || 30;
 
     const { startOfDay, endOfDay } = getTodayRange();
     const fromDate = getFromDate(days);
+
+    // Role-based survey and response filter
+    let surveyFilter = {};
+    if (auth.admin.role === "SUB_ADMIN") {
+      surveyFilter = { createdByAdmin: auth.admin._id };
+    } else if (auth.admin.role === "SUPER_ADMIN" && subAdminId) {
+      surveyFilter = { createdByAdmin: subAdminId };
+    }
+
+    const matchedSurveys = await Survey.find(surveyFilter).select("_id").lean();
+    const matchedSurveyIds = matchedSurveys.map((s) => s._id);
+
+    const isScoped = auth.admin.role === "SUB_ADMIN" || Boolean(subAdminId);
+    const responseMatch = isScoped ? { survey: { $in: matchedSurveyIds } } : {};
 
     // ---- BASIC COUNTS ----
     const [
@@ -85,21 +99,23 @@ export const getAdminDashboardOverview = async (req, res) => {
       User.countDocuments({ isActive: true }),
       User.countDocuments({ role: "SURVEY_USER" }),
       User.countDocuments({ role: "QUALITY_ENGINEER" }),
-      Survey.countDocuments({}),
-      Survey.countDocuments({ isActive: true }),
-      Survey.countDocuments({ status: "DRAFT" }),
-      Survey.countDocuments({ status: "CLOSED" }),
-      SurveyResponse.countDocuments({}),
+      Survey.countDocuments(surveyFilter),
+      Survey.countDocuments({ ...surveyFilter, isActive: true }),
+      Survey.countDocuments({ ...surveyFilter, status: "DRAFT" }),
+      Survey.countDocuments({ ...surveyFilter, status: "CLOSED" }),
+      SurveyResponse.countDocuments(responseMatch),
       PunchIn.countDocuments({}),
       PunchIn.countDocuments({
         createdAt: { $gte: startOfDay, $lt: endOfDay },
       }),
       SurveyResponse.countDocuments({
+        ...responseMatch,
         createdAt: { $gte: startOfDay, $lt: endOfDay },
       }),
 
       // survey status breakdown
       Survey.aggregate([
+        { $match: surveyFilter },
         {
           $group: {
             _id: "$status",
@@ -130,6 +146,7 @@ export const getAdminDashboardOverview = async (req, res) => {
       SurveyResponse.aggregate([
         {
           $match: {
+            ...responseMatch,
             createdAt: { $gte: fromDate },
           },
         },
@@ -146,6 +163,7 @@ export const getAdminDashboardOverview = async (req, res) => {
 
       // survey wise performance
       SurveyResponse.aggregate([
+        { $match: responseMatch },
         {
           $group: {
             _id: "$survey",
@@ -157,6 +175,7 @@ export const getAdminDashboardOverview = async (req, res) => {
 
       // responses grouped by user
       SurveyResponse.aggregate([
+        { $match: responseMatch },
         {
           $group: {
             _id: "$userCode",

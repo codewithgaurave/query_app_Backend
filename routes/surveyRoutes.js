@@ -28,18 +28,10 @@ import {
   publicListDashboardPinnedQuestions,  
     publicDeleteDashboardPinnedQuestion, 
 } from "../controllers/surveyResponseController.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requirePermission, requireAdminOnly } from "../middleware/auth.js";
 import upload, { uploadSurveyAudio } from "../middleware/upload.js";
 
 const router = express.Router();
-
-// Admin-only guard
-const requireAdminOnly = (req, res, next) => {
-  if (!req.user || !req.user.adminId) {
-    return res.status(403).json({ message: "Admin access only" });
-  }
-  next();
-};
 
 // QUALITY_ENGINEER-only guard
 const requireQualityEngineerOnly = (req, res, next) => {
@@ -74,13 +66,13 @@ router.patch(
 );
 
 // ✅ Create survey (Admin)
-router.post("/create", requireAuth, requireAdminOnly, createSurvey);
+router.post("/create", requireAuth, requirePermission("surveys"), createSurvey);
 
 // ✅ Update survey (Admin)
 router.put(
   "/:surveyIdOrCode",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveys"),
   updateSurvey
 );
 
@@ -88,7 +80,7 @@ router.put(
 router.delete(
   "/:surveyIdOrCode",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveys"),
   deleteSurvey
 );
 
@@ -96,7 +88,7 @@ router.delete(
 router.post(
   "/:surveyIdOrCode/duplicate",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveys"),
   duplicateSurvey
 );
 
@@ -104,7 +96,7 @@ router.post(
 router.post(
   "/upload-symbol",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveys"),
   upload.single("image"),
   (req, res) => {
     try {
@@ -124,7 +116,7 @@ router.post(
 router.post(
   "/:surveyIdOrCode/questions",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveys"),
   addSurveyQuestion
 );
 
@@ -132,7 +124,7 @@ router.post(
 router.put(
   "/questions/:questionId",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveys"),
   updateSurveyQuestion
 );
 
@@ -140,7 +132,7 @@ router.put(
 router.delete(
   "/questions/:questionId",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveys"),
   deleteSurveyQuestion
 );
 
@@ -151,7 +143,7 @@ router.get("/list", requireAuth, requireAdminOnly, listSurveys);
 router.get(
   "/responses/summary",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveyResponses"),
   adminSurveyResponseSummary
 );
 
@@ -177,7 +169,7 @@ router.post(
 router.get(
   "/:surveyIdOrCode/responses",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("surveyResponses"),
   listSurveyResponses
 );
 

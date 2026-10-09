@@ -12,17 +12,10 @@ import {
   deleteUser,
   resetUserPasswordByAdmin, // 🔐 NEW IMPORT
 } from "../controllers/userController.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { uploadUserFields } from "../middleware/upload.js";
 
 const router = express.Router();
-
-const requireAdminOnly = (req, res, next) => {
-  if (!req.user || !req.user.adminId) {
-    return res.status(403).json({ message: "Admin access only" });
-  }
-  next();
-};
 
 // PUBLIC
 router.post("/login", loginUser);
@@ -34,16 +27,16 @@ router.post("/login/quality-engineer", loginQualityEngineer);
 router.post(
   "/create",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("users"),
   uploadUserFields, // single('profilePhoto')
   createUserByAdmin
 );
 
-router.get("/list", requireAuth, requireAdminOnly, listUsers);
+router.get("/list", requireAuth, requirePermission("users"), listUsers);
 
-router.get("/:id", requireAuth, requireAdminOnly, getUserById);
+router.get("/:id", requireAuth, requirePermission("users"), getUserById);
 
-router.patch("/:id", requireAuth, requireAdminOnly, updateUserByAdmin);
+router.patch("/:id", requireAuth, requirePermission("users"), updateUserByAdmin);
 
 // 🔐 NEW: Admin resets user password
 // PATCH /api/users/:id/reset-password
@@ -51,14 +44,15 @@ router.patch("/:id", requireAuth, requireAdminOnly, updateUserByAdmin);
 router.patch(
   "/:id/reset-password",
   requireAuth,
-  requireAdminOnly,
+  requirePermission("users"),
   resetUserPasswordByAdmin
 );
 
-router.patch("/:id/block", requireAuth, requireAdminOnly, blockUser);
+router.patch("/:id/block", requireAuth, requirePermission("users"), blockUser);
 
-router.patch("/:id/unblock", requireAuth, requireAdminOnly, unblockUser);
+router.patch("/:id/unblock", requireAuth, requirePermission("users"), unblockUser);
 
-router.delete("/:id", requireAuth, requireAdminOnly, deleteUser);
+router.delete("/:id", requireAuth, requirePermission("users"), deleteUser);
 
 export default router;
+
