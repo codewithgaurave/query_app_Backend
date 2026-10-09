@@ -20,7 +20,7 @@ router.post("/create", createAdmin);
 router.post("/login", loginAdmin);
 
 // protected routes
-router.get("/list", requireAuth, listAdmins);
+router.get("/list", requireAuth, requireSuperAdminOnly, listAdmins);
 router.post("/logout-all", requireAuth, logoutAll);
 router.get("/profile", requireAuth, getAdminProfile);
 router.put("/profile", requireAuth, editAdminProfile);

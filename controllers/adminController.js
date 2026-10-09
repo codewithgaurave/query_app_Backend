@@ -19,12 +19,24 @@ const ALL_PERMISSIONS = {
 
 const DEFAULT_SUBADMIN_PERMISSIONS = {
   dashboard: true,
-  surveys: true,
+  surveys: false,       // Exclusive to Super Admin
   surveyResponses: true,
-  surveyCharts: true,
-  users: false,
+  surveyCharts: false,  // Exclusive to Super Admin
+  users: false,         // Exclusive to Super Admin
   punchins: false,
   pinnedQuestions: false,
+};
+
+// Helper: Sanitize SubAdmin permissions to guarantee SuperAdmin-exclusive modules are NEVER granted
+const sanitizeSubAdminPermissions = (perms = {}) => {
+  return {
+    ...DEFAULT_SUBADMIN_PERMISSIONS,
+    ...perms,
+    // Strictly force Super Admin exclusive modules to false for any Sub Admin
+    surveys: false,
+    users: false,
+    surveyCharts: false,
+  };
 };
 
 // helpers
@@ -38,7 +50,7 @@ const signJwt = (admin) =>
       permissions:
         admin.role === "SUPER_ADMIN"
           ? ALL_PERMISSIONS
-          : admin.permissions || DEFAULT_SUBADMIN_PERMISSIONS,
+          : sanitizeSubAdminPermissions(admin.permissions),
     },
     JWT_SECRET,
     {
@@ -109,7 +121,7 @@ export const loginAdmin = async (req, res) => {
     const userPermissions =
       admin.role === "SUPER_ADMIN"
         ? ALL_PERMISSIONS
-        : { ...DEFAULT_SUBADMIN_PERMISSIONS, ...(admin.permissions ? admin.permissions.toObject?.() || admin.permissions : {}) };
+        : sanitizeSubAdminPermissions(admin.permissions ? admin.permissions.toObject?.() || admin.permissions : {});
 
     return res.json({
       message: "Login successful",
@@ -130,7 +142,7 @@ export const loginAdmin = async (req, res) => {
   }
 };
 
-// List Admins (protected)
+// List Admins (protected - Super Admin only)
 export const listAdmins = async (_req, res) => {
   try {
     const admins = await Admin.find(
@@ -161,9 +173,7 @@ export const createSubAdmin = async (req, res) => {
       return res.status(409).json({ message: "Sub Admin with this Login ID already exists." });
     }
 
-    const finalPermissions = permissions
-      ? { ...DEFAULT_SUBADMIN_PERMISSIONS, ...permissions }
-      : DEFAULT_SUBADMIN_PERMISSIONS;
+    const finalPermissions = sanitizeSubAdminPermissions(permissions);
 
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
     const subAdmin = await Admin.create({
@@ -188,7 +198,7 @@ export const createSubAdmin = async (req, res) => {
         mobile: subAdmin.mobile,
         email: subAdmin.email,
         isActive: subAdmin.isActive,
-        permissions: subAdmin.permissions,
+        permissions: sanitizeSubAdminPermissions(subAdmin.permissions),
         createdAtIST: subAdmin.createdAtIST,
       },
     });
@@ -223,7 +233,7 @@ export const listSubAdmins = async (req, res) => {
 
     const result = subAdmins.map((sa) => ({
       ...sa,
-      permissions: sa.permissions || DEFAULT_SUBADMIN_PERMISSIONS,
+      permissions: sanitizeSubAdminPermissions(sa.permissions),
       totalSurveys: countMap[String(sa._id)]?.totalSurveys || 0,
       activeSurveys: countMap[String(sa._id)]?.activeSurveys || 0,
     }));
@@ -253,10 +263,10 @@ export const updateSubAdmin = async (req, res) => {
 
     if (permissions !== undefined) {
       const existingPerms = subAdmin.permissions ? subAdmin.permissions.toObject?.() || subAdmin.permissions : DEFAULT_SUBADMIN_PERMISSIONS;
-      subAdmin.permissions = {
+      subAdmin.permissions = sanitizeSubAdminPermissions({
         ...existingPerms,
         ...permissions,
-      };
+      });
     }
 
     if (password && password.trim()) {
@@ -276,7 +286,7 @@ export const updateSubAdmin = async (req, res) => {
         mobile: subAdmin.mobile,
         email: subAdmin.email,
         isActive: subAdmin.isActive,
-        permissions: subAdmin.permissions,
+        permissions: sanitizeSubAdminPermissions(subAdmin.permissions),
       },
     });
   } catch (err) {
@@ -337,7 +347,7 @@ export const getAdminProfile = async (req, res) => {
     adminObj.permissions =
       admin.role === "SUPER_ADMIN"
         ? ALL_PERMISSIONS
-        : { ...DEFAULT_SUBADMIN_PERMISSIONS, ...(admin.permissions ? admin.permissions.toObject?.() || admin.permissions : {}) };
+        : sanitizeSubAdminPermissions(admin.permissions ? admin.permissions.toObject?.() || admin.permissions : {});
     return res.json({ admin: adminObj });
   } catch (err) {
     console.error("getAdminProfile error:", err);

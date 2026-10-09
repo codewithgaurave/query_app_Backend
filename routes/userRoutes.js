@@ -10,9 +10,9 @@ import {
   blockUser,
   unblockUser,
   deleteUser,
-  resetUserPasswordByAdmin, // 🔐 NEW IMPORT
+  resetUserPasswordByAdmin,
 } from "../controllers/userController.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requireSuperAdminOnly } from "../middleware/auth.js";
 import { uploadUserFields } from "../middleware/upload.js";
 
 const router = express.Router();
@@ -23,36 +23,34 @@ router.post("/login", loginUser);
 // ✅ PUBLIC - Only QUALITY_ENGINEER login route
 router.post("/login/quality-engineer", loginQualityEngineer);
 
-// ADMIN ONLY (with profile photo upload)
+// SUPER ADMIN ONLY (with profile photo upload)
 router.post(
   "/create",
   requireAuth,
-  requirePermission("users"),
+  requireSuperAdminOnly,
   uploadUserFields, // single('profilePhoto')
   createUserByAdmin
 );
 
-router.get("/list", requireAuth, requirePermission("users"), listUsers);
+router.get("/list", requireAuth, requireSuperAdminOnly, listUsers);
 
-router.get("/:id", requireAuth, requirePermission("users"), getUserById);
+router.get("/:id", requireAuth, requireSuperAdminOnly, getUserById);
 
-router.patch("/:id", requireAuth, requirePermission("users"), updateUserByAdmin);
+router.patch("/:id", requireAuth, requireSuperAdminOnly, updateUserByAdmin);
 
-// 🔐 NEW: Admin resets user password
-// PATCH /api/users/:id/reset-password
-// Body: { "password": "NewPassword123" }
+// 🔐 Admin resets user password
 router.patch(
   "/:id/reset-password",
   requireAuth,
-  requirePermission("users"),
+  requireSuperAdminOnly,
   resetUserPasswordByAdmin
 );
 
-router.patch("/:id/block", requireAuth, requirePermission("users"), blockUser);
+router.patch("/:id/block", requireAuth, requireSuperAdminOnly, blockUser);
 
-router.patch("/:id/unblock", requireAuth, requirePermission("users"), unblockUser);
+router.patch("/:id/unblock", requireAuth, requireSuperAdminOnly, unblockUser);
 
-router.delete("/:id", requireAuth, requirePermission("users"), deleteUser);
+router.delete("/:id", requireAuth, requireSuperAdminOnly, deleteUser);
 
 export default router;
 

@@ -101,6 +101,13 @@ export const getUserPunchHistory = async (req, res) => {
   try {
     const { userCode } = req.params;
 
+    if (req.user?.role === "SUB_ADMIN") {
+      const user = await User.findOne({ userCode }).lean();
+      if (user && String(user.createdByAdmin) !== String(req.user.sub)) {
+        return res.status(403).json({ message: "Access denied: You can only view punch-in history of users created by you." });
+      }
+    }
+
     const punches = await PunchIn.find({ userCode })
       .sort({ createdAt: -1 })
       .lean();
@@ -113,9 +120,20 @@ export const getUserPunchHistory = async (req, res) => {
 };
 
 // ✅ Get all punch-in history (admin only)
-export const getAllPunchHistory = async (_req, res) => {
+export const getAllPunchHistory = async (req, res) => {
   try {
-    const punches = await PunchIn.find({})
+    let query = {};
+    if (req.user?.role === "SUB_ADMIN") {
+      const subAdminUsers = await User.find({ createdByAdmin: req.user.sub }).select("_id").lean();
+      const userIds = subAdminUsers.map((u) => u._id);
+      query.user = { $in: userIds };
+    } else if (req.user?.role === "SUPER_ADMIN" && req.query.subAdminId) {
+      const subAdminUsers = await User.find({ createdByAdmin: req.query.subAdminId }).select("_id").lean();
+      const userIds = subAdminUsers.map((u) => u._id);
+      query.user = { $in: userIds };
+    }
+
+    const punches = await PunchIn.find(query)
       .populate("user", "userCode fullName mobile role")
       .sort({ createdAt: -1 })
       .lean();

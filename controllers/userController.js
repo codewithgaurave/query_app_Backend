@@ -245,7 +245,7 @@ export const loginQualityEngineer = async (req, res) => {
 // ✅ List all users (admin)
 export const listUsers = async (req, res) => {
   try {
-    const { role, isActive } = req.query;
+    const { role, isActive, subAdminId } = req.query;
     const filter = {};
 
     if (role && ["SURVEY_USER", "QUALITY_ENGINEER"].includes(role)) {
@@ -253,6 +253,13 @@ export const listUsers = async (req, res) => {
     }
     if (typeof isActive !== "undefined") {
       filter.isActive = isActive === "true";
+    }
+
+    // Role-based owner isolation:
+    if (req.user?.role === "SUB_ADMIN") {
+      filter.createdByAdmin = req.user.sub;
+    } else if (req.user?.role === "SUPER_ADMIN" && subAdminId) {
+      filter.createdByAdmin = subAdminId;
     }
 
     const users = await User.find(filter, {
@@ -269,9 +276,13 @@ export const listUsers = async (req, res) => {
       dateOfJoining: 1,
       isActive: 1,
       profilePhotoUrl: 1,
+      createdByAdmin: 1,
       createdAt: 1,
       updatedAt: 1,
-    }).lean();
+    })
+      .populate("createdByAdmin", "adminId name role")
+      .sort({ createdAt: -1 })
+      .lean();
 
     return res.json({ users });
   } catch (err) {
@@ -302,9 +313,16 @@ export const getUserById = async (req, res) => {
       createdByAdmin: 1,
       createdAt: 1,
       updatedAt: 1,
-    }).lean();
+    })
+      .populate("createdByAdmin", "adminId name role")
+      .lean();
 
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Role check: Sub Admin can only view their own created users
+    if (req.user?.role === "SUB_ADMIN" && String(user.createdByAdmin?._id || user.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "Access denied: You can only view users created by you." });
+    }
 
     return res.json({ user });
   } catch (err) {
@@ -317,6 +335,14 @@ export const getUserById = async (req, res) => {
 export const updateUserByAdmin = async (req, res) => {
   try {
     const { id } = req.params;
+
+    const existingUser = await User.findById(id).lean();
+    if (!existingUser) return res.status(404).json({ message: "User not found" });
+
+    // Role check: Sub Admin can only update their own created users
+    if (req.user?.role === "SUB_ADMIN" && String(existingUser.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "Access denied: You can only modify users created by you." });
+    }
 
     const allowedFields = [
       "fullName",
@@ -355,12 +381,11 @@ export const updateUserByAdmin = async (req, res) => {
         dateOfJoining: 1,
         isActive: 1,
         profilePhotoUrl: 1,
+        createdByAdmin: 1,
         createdAt: 1,
         updatedAt: 1,
       },
     }).lean();
-
-    if (!user) return res.status(404).json({ message: "User not found" });
 
     return res.json({
       message: "User updated successfully",
@@ -378,7 +403,7 @@ export const updateUserByAdmin = async (req, res) => {
   }
 };
 
-// 🔐 NEW: Admin can reset a user's password
+// 🔐 Admin resets user's password
 export const resetUserPasswordByAdmin = async (req, res) => {
   try {
     const adminId = req.user?.sub;
@@ -386,13 +411,8 @@ export const resetUserPasswordByAdmin = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const adminExists = await Admin.findById(adminId).lean();
-    if (!adminExists) {
-      return res.status(401).json({ message: "Admin no longer exists" });
-    }
-
     const { id } = req.params;
-    const { password } = req.body; // you can call this "newPassword" if you prefer
+    const { password } = req.body;
 
     if (!password) {
       return res
@@ -400,11 +420,18 @@ export const resetUserPasswordByAdmin = async (req, res) => {
         .json({ message: "New password is required in body as 'password'." });
     }
 
-    // (optional) basic length check
     if (password.length < 6) {
       return res
         .status(400)
         .json({ message: "Password must be at least 6 characters long." });
+    }
+
+    const existingUser = await User.findById(id).lean();
+    if (!existingUser) return res.status(404).json({ message: "User not found" });
+
+    // Role check: Sub Admin can only reset password for their own created users
+    if (req.user?.role === "SUB_ADMIN" && String(existingUser.createdByAdmin) !== String(adminId)) {
+      return res.status(403).json({ message: "Access denied: You can only reset password for users created by you." });
     }
 
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
@@ -425,10 +452,6 @@ export const resetUserPasswordByAdmin = async (req, res) => {
       }
     ).lean();
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
     return res.json({
       message: "User password reset successfully",
       user,
@@ -444,13 +467,19 @@ export const blockUser = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const existingUser = await User.findById(id).lean();
+    if (!existingUser) return res.status(404).json({ message: "User not found" });
+
+    // Role check: Sub Admin can only block their own created users
+    if (req.user?.role === "SUB_ADMIN" && String(existingUser.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "Access denied: You can only block users created by you." });
+    }
+
     const user = await User.findByIdAndUpdate(
       id,
       { isActive: false },
       { new: true, projection: { userCode: 1, mobile: 1, isActive: 1 } }
     ).lean();
-
-    if (!user) return res.status(404).json({ message: "User not found" });
 
     return res.json({
       message: "User blocked successfully",
@@ -467,13 +496,19 @@ export const unblockUser = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const existingUser = await User.findById(id).lean();
+    if (!existingUser) return res.status(404).json({ message: "User not found" });
+
+    // Role check: Sub Admin can only unblock their own created users
+    if (req.user?.role === "SUB_ADMIN" && String(existingUser.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "Access denied: You can only unblock users created by you." });
+    }
+
     const user = await User.findByIdAndUpdate(
       id,
       { isActive: true },
       { new: true, projection: { userCode: 1, mobile: 1, isActive: 1 } }
     ).lean();
-
-    if (!user) return res.status(404).json({ message: "User not found" });
 
     return res.json({
       message: "User unblocked successfully",
@@ -490,8 +525,15 @@ export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const user = await User.findByIdAndDelete(id).lean();
-    if (!user) return res.status(404).json({ message: "User not found" });
+    const existingUser = await User.findById(id).lean();
+    if (!existingUser) return res.status(404).json({ message: "User not found" });
+
+    // Role check: Sub Admin can only delete their own created users
+    if (req.user?.role === "SUB_ADMIN" && String(existingUser.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "Access denied: You can only delete users created by you." });
+    }
+
+    await User.findByIdAndDelete(id);
 
     return res.json({ message: "User deleted successfully" });
   } catch (err) {

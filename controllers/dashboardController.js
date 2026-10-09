@@ -60,19 +60,29 @@ export const getAdminDashboardOverview = async (req, res) => {
     const { startOfDay, endOfDay } = getTodayRange();
     const fromDate = getFromDate(days);
 
-    // Role-based survey and response filter
+    // Role-based survey, user, and punch filter
     let surveyFilter = {};
+    let userFilter = {};
     if (auth.admin.role === "SUB_ADMIN") {
       surveyFilter = { createdByAdmin: auth.admin._id };
+      userFilter = { createdByAdmin: auth.admin._id };
     } else if (auth.admin.role === "SUPER_ADMIN" && subAdminId) {
       surveyFilter = { createdByAdmin: subAdminId };
+      userFilter = { createdByAdmin: subAdminId };
     }
 
     const matchedSurveys = await Survey.find(surveyFilter).select("_id").lean();
     const matchedSurveyIds = matchedSurveys.map((s) => s._id);
 
     const isScoped = auth.admin.role === "SUB_ADMIN" || Boolean(subAdminId);
+    let matchedUserIds = [];
+    if (isScoped) {
+      const matchedUsers = await User.find(userFilter).select("_id").lean();
+      matchedUserIds = matchedUsers.map((u) => u._id);
+    }
+
     const responseMatch = isScoped ? { survey: { $in: matchedSurveyIds } } : {};
+    const punchMatch = isScoped ? { user: { $in: matchedUserIds } } : {};
 
     // ---- BASIC COUNTS ----
     const [
@@ -95,17 +105,18 @@ export const getAdminDashboardOverview = async (req, res) => {
       responseAggByUser,
       punchAggByUser,
     ] = await Promise.all([
-      User.countDocuments({}),
-      User.countDocuments({ isActive: true }),
-      User.countDocuments({ role: "SURVEY_USER" }),
-      User.countDocuments({ role: "QUALITY_ENGINEER" }),
+      User.countDocuments(userFilter),
+      User.countDocuments({ ...userFilter, isActive: true }),
+      User.countDocuments({ ...userFilter, role: "SURVEY_USER" }),
+      User.countDocuments({ ...userFilter, role: "QUALITY_ENGINEER" }),
       Survey.countDocuments(surveyFilter),
       Survey.countDocuments({ ...surveyFilter, isActive: true }),
       Survey.countDocuments({ ...surveyFilter, status: "DRAFT" }),
       Survey.countDocuments({ ...surveyFilter, status: "CLOSED" }),
       SurveyResponse.countDocuments(responseMatch),
-      PunchIn.countDocuments({}),
+      PunchIn.countDocuments(punchMatch),
       PunchIn.countDocuments({
+        ...punchMatch,
         createdAt: { $gte: startOfDay, $lt: endOfDay },
       }),
       SurveyResponse.countDocuments({
@@ -128,6 +139,7 @@ export const getAdminDashboardOverview = async (req, res) => {
       PunchIn.aggregate([
         {
           $match: {
+            ...punchMatch,
             createdAt: { $gte: fromDate },
           },
         },
@@ -188,6 +200,7 @@ export const getAdminDashboardOverview = async (req, res) => {
 
       // punch-ins grouped by user
       PunchIn.aggregate([
+        { $match: punchMatch },
         {
           $group: {
             _id: "$userCode",

@@ -28,7 +28,7 @@ import {
   publicListDashboardPinnedQuestions,  
     publicDeleteDashboardPinnedQuestion, 
 } from "../controllers/surveyResponseController.js";
-import { requireAuth, requirePermission, requireAdminOnly } from "../middleware/auth.js";
+import { requireAuth, requirePermission, requireAdminOnly, requireSuperAdminOnly, optionalAuth } from "../middleware/auth.js";
 import upload, { uploadSurveyAudio } from "../middleware/upload.js";
 
 const router = express.Router();
@@ -56,8 +56,8 @@ router.get("/qc/responses/:responseId", requireAuth, requireQualityEngineerOnly,
 // optional: ?userCode=USR-XXXX => sirf usko assigned surveys (ya global)
 router.get("/public/list", listPublicSurveys);
 
-// ✅ 🚨PUBLIC: sabhi surveys + unke responses + approval info (NO AUTH)
-router.get("/public/responses/all", publicSurveyResponsesWithApproval);
+// ✅ 🚨PUBLIC: sabhi surveys + unke responses + approval info
+router.get("/public/responses/all", optionalAuth, publicSurveyResponsesWithApproval);
 
 // ✅ 🚨PUBLIC: set approvalStatus for a specific response (NO AUTH)
 router.patch(
@@ -65,38 +65,38 @@ router.patch(
   publicSetSurveyResponseApproval
 );
 
-// ✅ Create survey (Admin)
-router.post("/create", requireAuth, requirePermission("surveys"), createSurvey);
+// ✅ Create survey (Super Admin Only)
+router.post("/create", requireAuth, requireSuperAdminOnly, createSurvey);
 
-// ✅ Update survey (Admin)
+// ✅ Update survey (Super Admin Only)
 router.put(
   "/:surveyIdOrCode",
   requireAuth,
-  requirePermission("surveys"),
+  requireSuperAdminOnly,
   updateSurvey
 );
 
-// ✅ Delete survey (Admin)
+// ✅ Delete survey (Super Admin Only)
 router.delete(
   "/:surveyIdOrCode",
   requireAuth,
-  requirePermission("surveys"),
+  requireSuperAdminOnly,
   deleteSurvey
 );
 
-// ✅ Duplicate survey (Admin)
+// ✅ Duplicate survey (Super Admin Only)
 router.post(
   "/:surveyIdOrCode/duplicate",
   requireAuth,
-  requirePermission("surveys"),
+  requireSuperAdminOnly,
   duplicateSurvey
 );
 
-// ✅ Upload party symbol image (Admin)
+// ✅ Upload party symbol image (Super Admin Only)
 router.post(
   "/upload-symbol",
   requireAuth,
-  requirePermission("surveys"),
+  requireSuperAdminOnly,
   upload.single("image"),
   (req, res) => {
     try {
@@ -112,32 +112,32 @@ router.post(
   }
 );
 
-// ✅ Add question (Admin)
+// ✅ Add question (Super Admin Only)
 router.post(
   "/:surveyIdOrCode/questions",
   requireAuth,
-  requirePermission("surveys"),
+  requireSuperAdminOnly,
   addSurveyQuestion
 );
 
-// ✅ Update question (Admin)
+// ✅ Update question (Super Admin Only)
 router.put(
   "/questions/:questionId",
   requireAuth,
-  requirePermission("surveys"),
+  requireSuperAdminOnly,
   updateSurveyQuestion
 );
 
-// ✅ Delete question (Admin)
+// ✅ Delete question (Super Admin Only)
 router.delete(
   "/questions/:questionId",
   requireAuth,
-  requirePermission("surveys"),
+  requireSuperAdminOnly,
   deleteSurveyQuestion
 );
 
-// ✅ List surveys (Admin)
-router.get("/list", requireAuth, requireAdminOnly, listSurveys);
+// ✅ List surveys (Super Admin Only)
+router.get("/list", requireAuth, requireSuperAdminOnly, listSurveys);
 
 // ✅ NEW: Admin summary — sabhi surveys + response count + users
 router.get(
@@ -149,7 +149,7 @@ router.get(
 
 // ✅ Get survey + questions
 // SURVEY_USER app me: ?userCode=USR-XXXX bhejoge to punch-in + assignment check hoga
-router.get("/:surveyIdOrCode", getSurveyWithQuestions);
+router.get("/:surveyIdOrCode", optionalAuth, getSurveyWithQuestions);
 
 // ✅ SURVEY_USER submit SINGLE response + audio (userCode based, no token)
 router.post(
@@ -174,7 +174,7 @@ router.get(
 );
 
 // ✅ kis user ne kaun-kaun se surveys ka answer de diya (userCode se)
-router.get("/responses/user/:userCode", listUserSurveySummary);
+router.get("/responses/user/:userCode", optionalAuth, listUserSurveySummary);
 
 // ✅ NEW: QUALITY_ENGINEER sets approvalStatus for a specific response
 // (route naam thoda generic kiya /approval)
@@ -186,17 +186,19 @@ router.patch(
 );
 
 // ⭐ PUBLIC: pin a question to dashboard
-router.post("/public/dashboard/pin", publicPinQuestionToDashboard);
+router.post("/public/dashboard/pin", optionalAuth, publicPinQuestionToDashboard);
 
 // ⭐ PUBLIC: list pinned questions with analytics (dashboard)
 router.get(
   "/public/dashboard/pins",
+  optionalAuth,
   publicListDashboardPinnedQuestions
 );
 
 // ⭐ PUBLIC: delete a pinned question from dashboard
 router.delete(
   "/public/dashboard/pins/:pinId",
+  optionalAuth,
   publicDeleteDashboardPinnedQuestion
 );
 

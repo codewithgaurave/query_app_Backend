@@ -729,9 +729,16 @@ export const listUserSurveySummary = async (req, res) => {
     // 1) base user
     const user = await User.findOne({ userCode }).lean();
 
-    // 2) saare responses
+    // 2) saare responses (SubAdmin only sees responses to their own surveys)
+    const responseFilter = { userCode };
+    if (req.user?.role === "SUB_ADMIN") {
+      const subAdminSurveys = await Survey.find({ createdByAdmin: req.user.sub }).select("_id").lean();
+      const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
+      responseFilter.survey = { $in: subAdminSurveyIds };
+    }
+
     const responses = await SurveyResponse.find(
-      { userCode },
+      responseFilter,
       {
         survey: 1,
         surveyCode: 1,
@@ -1305,6 +1312,12 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
 
     // Fetch surveys first so we only aggregate valid active surveys
     const surveyFilter = {};
+    if (req.user?.role === "SUB_ADMIN") {
+      surveyFilter.createdByAdmin = req.user.sub;
+    } else if (req.query.subAdminId) {
+      surveyFilter.createdByAdmin = req.query.subAdminId;
+    }
+
     if (surveyId) {
       if (mongoose.Types.ObjectId.isValid(surveyId)) {
         surveyFilter._id = surveyId;
@@ -1574,6 +1587,10 @@ export const publicPinQuestionToDashboard = async (req, res) => {
       return res.status(404).json({ message: "Survey not found." });
     }
 
+    if (req.user?.role === "SUB_ADMIN" && String(survey.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "You do not have permission to pin questions from this survey." });
+    }
+
     const question = await SurveyQuestion.findOne({
       _id: questionId,
       survey: survey._id,
@@ -1677,7 +1694,18 @@ const buildPinnedQuestionStats = async (surveyId, questionId) => {
  */
 export const publicListDashboardPinnedQuestions = async (req, res) => {
   try {
-    const pins = await SurveyDashboardPin.find({})
+    let pinFilter = {};
+    if (req.user?.role === "SUB_ADMIN") {
+      const subAdminSurveys = await Survey.find({ createdByAdmin: req.user.sub }).select("_id").lean();
+      const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
+      pinFilter.survey = { $in: subAdminSurveyIds };
+    } else if (req.query.subAdminId) {
+      const subAdminSurveys = await Survey.find({ createdByAdmin: req.query.subAdminId }).select("_id").lean();
+      const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
+      pinFilter.survey = { $in: subAdminSurveyIds };
+    }
+
+    const pins = await SurveyDashboardPin.find(pinFilter)
       .sort({ createdAt: -1 })
       .lean();
 
@@ -1724,13 +1752,21 @@ export const publicDeleteDashboardPinnedQuestion = async (req, res) => {
         .json({ message: "Valid pinId is required." });
     }
 
-    const deleted = await SurveyDashboardPin.findByIdAndDelete(pinId).lean();
-
-    if (!deleted) {
+    const existingPin = await SurveyDashboardPin.findById(pinId).lean();
+    if (!existingPin) {
       return res
         .status(404)
         .json({ message: "Pinned question not found." });
     }
+
+    if (req.user?.role === "SUB_ADMIN") {
+      const parentSurvey = await Survey.findById(existingPin.survey).lean();
+      if (parentSurvey && String(parentSurvey.createdByAdmin) !== String(req.user.sub)) {
+        return res.status(403).json({ message: "You do not have permission to delete this pinned question." });
+      }
+    }
+
+    const deleted = await SurveyDashboardPin.findByIdAndDelete(pinId).lean();
 
     return res.json({
       message: "Pinned question removed from dashboard.",

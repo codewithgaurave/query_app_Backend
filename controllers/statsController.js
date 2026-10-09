@@ -209,9 +209,27 @@ export const getUserSurveyStats = async (req, res) => {
 // 2) PLATFORM WIDE STATS
 //    GET /api/stats/platform
 // ----------------------------------------
-export const getPlatformStats = async (_req, res) => {
+export const getPlatformStats = async (req, res) => {
   try {
     const { startOfDay, endOfDay } = getTodayRange();
+
+    let surveyFilter = {};
+    let responseFilter = {};
+    let userFilter = {};
+
+    if (req.user?.role === "SUB_ADMIN") {
+      surveyFilter = { createdByAdmin: req.user.sub };
+      userFilter = { createdByAdmin: req.user.sub };
+      const subAdminSurveys = await Survey.find(surveyFilter).select("_id").lean();
+      const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
+      responseFilter = { survey: { $in: subAdminSurveyIds } };
+    } else if (req.user?.role === "SUPER_ADMIN" && req.query.subAdminId) {
+      surveyFilter = { createdByAdmin: req.query.subAdminId };
+      userFilter = { createdByAdmin: req.query.subAdminId };
+      const subAdminSurveys = await Survey.find(surveyFilter).select("_id").lean();
+      const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
+      responseFilter = { survey: { $in: subAdminSurveyIds } };
+    }
 
     const [
       totalSurveys,
@@ -225,30 +243,31 @@ export const getPlatformStats = async (_req, res) => {
       surveyUsers,
       qualityEngineers,
     ] = await Promise.all([
-      Survey.countDocuments({}),
-      Survey.countDocuments({ isActive: true }),
-      Survey.countDocuments({ isActive: true, status: "ACTIVE" }),
-      Survey.countDocuments({ status: "CLOSED" }),
-      SurveyResponse.countDocuments({}),
+      Survey.countDocuments(surveyFilter),
+      Survey.countDocuments({ ...surveyFilter, isActive: true }),
+      Survey.countDocuments({ ...surveyFilter, isActive: true, status: "ACTIVE" }),
+      Survey.countDocuments({ ...surveyFilter, status: "CLOSED" }),
+      SurveyResponse.countDocuments(responseFilter),
       SurveyResponse.countDocuments({
+        ...responseFilter,
         createdAt: { $gte: startOfDay, $lt: endOfDay },
       }),
-      User.countDocuments({}),
-      User.countDocuments({ isActive: true }),
-      User.countDocuments({ role: "SURVEY_USER" }),
-      User.countDocuments({ role: "QUALITY_ENGINEER" }),
+      User.countDocuments(userFilter),
+      User.countDocuments({ ...userFilter, isActive: true }),
+      User.countDocuments({ ...userFilter, role: "SURVEY_USER" }),
+      User.countDocuments({ ...userFilter, role: "QUALITY_ENGINEER" }),
     ]);
 
     return res.json({
-      // 🔴 NEW: clear summary for your requirement
+      // 🔴 clear summary
       systemSurveys: {
-        total: totalSurveys,   // ab tak system me total kitne survey
-        active: liveSurveys,   // abhi kitne survey action/active (status ACTIVE + isActive)
+        total: totalSurveys,
+        active: liveSurveys,
       },
       surveys: {
         total: totalSurveys,
-        active: activeSurveys, // koi bhi isActive === true
-        live: liveSurveys,     // isActive + status: "ACTIVE"
+        active: activeSurveys,
+        live: liveSurveys,
         closed: closedSurveys,
       },
       responses: {
@@ -280,6 +299,11 @@ export const getSurveyStats = async (req, res) => {
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
     if (!survey) {
       return res.status(404).json({ message: "Survey not found" });
+    }
+
+    // Role check: Sub Admin can only view stats for their own surveys
+    if (req.user?.role === "SUB_ADMIN" && String(survey.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "You do not have permission to view stats for this survey." });
     }
 
     const { startOfDay, endOfDay } = getTodayRange();

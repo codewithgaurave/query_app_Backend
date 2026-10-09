@@ -64,6 +64,7 @@ export const createSurvey = async (req, res) => {
       // NEW: frontend se array of userIds
       assignedUserIds,
       assignedQCIds,
+      mainAdminId, // ⭐ Main Admin (Owner/Sub Admin) assignment
     } = req.body;
 
     if (!name) {
@@ -143,6 +144,12 @@ export const createSurvey = async (req, res) => {
 
     const surveyCode = generateSurveyCode();
 
+    // Assign questionnaire ownership (Main Admin): if Super Admin specifies a SubAdmin ID, use that, else fallback to creator (Super Admin)
+    let effectiveAdminId = adminId;
+    if (req.user?.role === "SUPER_ADMIN" && mainAdminId && mongoose.Types.ObjectId.isValid(mainAdminId)) {
+      effectiveAdminId = mainAdminId;
+    }
+
     const survey = await Survey.create({
       surveyCode,
       name,
@@ -158,7 +165,7 @@ export const createSurvey = async (req, res) => {
       language,
       tags,
       allowedQuestionTypes: allowedTypes,
-      createdByAdmin: adminId,
+      createdByAdmin: effectiveAdminId,
       assignedUsers,
       assignedQCs,
     });
@@ -206,6 +213,7 @@ export const updateSurvey = async (req, res) => {
       // updated list of userIds (full replacement)
       assignedUserIds,
       assignedQCIds,
+      mainAdminId, // ⭐ Reassign Main Admin (Questionnaire Owner)
     } = req.body;
 
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
@@ -235,6 +243,15 @@ export const updateSurvey = async (req, res) => {
     if (typeof language === "string") update.language = language;
     if (Array.isArray(tags)) update.tags = tags;
     if (typeof isActive === "boolean") update.isActive = isActive;
+
+    // Super Admin can re-assign the Main Admin (ownership) of this survey
+    if (req.user?.role === "SUPER_ADMIN" && mainAdminId !== undefined) {
+      if (mainAdminId && mongoose.Types.ObjectId.isValid(mainAdminId)) {
+        update.createdByAdmin = mainAdminId;
+      } else if (!mainAdminId) {
+        update.createdByAdmin = adminId;
+      }
+    }
 
     // allowedQuestionTypes validate
     if (Array.isArray(allowedQuestionTypes)) {
@@ -1090,6 +1107,11 @@ export const getSurveyWithQuestions = async (req, res) => {
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
     if (!survey) {
       return res.status(404).json({ message: "Survey not found" });
+    }
+
+    // Role check: Sub Admin can only view their own survey and its questions
+    if (req.user?.role === "SUB_ADMIN" && !userCode && String(survey.createdByAdmin) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "You do not have permission to access this survey." });
     }
 
     if (userCode && user) {
