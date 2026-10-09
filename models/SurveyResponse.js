@@ -64,7 +64,7 @@ const surveyResponseSchema = new mongoose.Schema(
     longitude: { type: Number },
 
     // ✅ Idempotency key from Flutter to prevent duplicate uploads on retry
-    clientSubmissionId: { type: String, index: true, sparse: true },
+    clientSubmissionId: { type: String, sparse: true },
 
     isCompleted: { type: Boolean, default: true },
 

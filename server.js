@@ -17,6 +17,9 @@ import statsRoutes from "./routes/statsRoutes.js";
 
 const app = express();
 
+// 🛡️ Enable trust proxy for aaPanel / Nginx reverse proxy
+app.set("trust proxy", 1);
+
 // 🔐 Security headers
 app.use(helmet());
 

@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "nodemon server.js"
+    "start": "nodemon --max-old-space-size=4096 server.js",
+    "prod": "node --max-old-space-size=4096 server.js"
   },
   "type": "module",
   "keywords": [],

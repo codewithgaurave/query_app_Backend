@@ -1275,8 +1275,16 @@ export const getQCResponseDetail = async (req, res) => {
  */
 export const publicSurveyResponsesWithApproval = async (req, res) => {
   try {
-    const { date, startDate, endDate } = req.query;
+    const { date, startDate, endDate, surveyId } = req.query;
     const responseQuery = {};
+
+    if (surveyId) {
+      if (mongoose.Types.ObjectId.isValid(surveyId)) {
+        responseQuery.survey = surveyId;
+      } else {
+        responseQuery.surveyCode = surveyId;
+      }
+    }
 
     if (date) {
       const range = getISTDateRange(date);
@@ -1295,6 +1303,51 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
       }
     }
 
+    // Fetch surveys first so we only aggregate valid active surveys
+    const surveyFilter = {};
+    if (surveyId) {
+      if (mongoose.Types.ObjectId.isValid(surveyId)) {
+        surveyFilter._id = surveyId;
+      } else {
+        surveyFilter.surveyCode = surveyId;
+      }
+    }
+
+    const surveys = await Survey.find(
+      surveyFilter,
+      {
+        name: 1,
+        surveyCode: 1,
+        description: 1,
+        status: 1,
+        category: 1,
+        projectName: 1,
+      }
+    ).lean();
+
+    if (!surveys.length) {
+      return res.json({ surveys: [] });
+    }
+
+    const surveyMap = new Map();
+    const grouped = new Map();
+    for (const s of surveys) {
+      const groupKey = String(s._id);
+      surveyMap.set(groupKey, s);
+      if (s.surveyCode) surveyMap.set(String(s.surveyCode), s);
+      grouped.set(groupKey, {
+        surveyId: s._id,
+        surveyCode: s.surveyCode,
+        name: s.name,
+        description: s.description,
+        status: s.status,
+        category: s.category,
+        projectName: s.projectName,
+        responses: [],
+      });
+    }
+
+    // Fetch responses using projection (lean, minimal fields)
     const responses = await SurveyResponse.find(
       responseQuery,
       {
@@ -1311,7 +1364,6 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         approvalStatus: 1,
         approvedBy: 1,
         createdAt: 1,
-        // ✅ location fields
         latitude: 1,
         longitude: 1,
       }
@@ -1319,59 +1371,8 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    if (!responses || !responses.length) {
-      return res.json({ surveys: [] });
-    }
-
-    // Filter only valid ObjectIds to prevent Mongoose CastError on null/undefined/invalid values
-    const validSurveyObjectIds = [
-      ...new Set(
-        responses
-          .filter((r) => r.survey && mongoose.Types.ObjectId.isValid(r.survey))
-          .map((r) => String(r.survey))
-      ),
-    ];
-
-    const validSurveyCodes = [
-      ...new Set(
-        responses
-          .filter((r) => r.surveyCode)
-          .map((r) => String(r.surveyCode))
-      ),
-    ];
-
-    const queryConditions = [];
-    if (validSurveyObjectIds.length) {
-      queryConditions.push({ _id: { $in: validSurveyObjectIds } });
-    }
-    if (validSurveyCodes.length) {
-      queryConditions.push({ surveyCode: { $in: validSurveyCodes } });
-    }
-
-    let surveys = [];
-    if (queryConditions.length) {
-      surveys = await Survey.find(
-        { $or: queryConditions },
-        {
-          name: 1,
-          surveyCode: 1,
-          description: 1,
-          status: 1,
-          category: 1,
-          projectName: 1,
-        }
-      ).lean();
-    }
-
-    const surveyMap = new Map();
-    for (const s of surveys) {
-      if (s._id) surveyMap.set(String(s._id), s);
-      if (s.surveyCode) surveyMap.set(String(s.surveyCode), s);
-    }
-
-    const grouped = new Map();
-
-    for (const r of responses) {
+    for (let i = 0; i < responses.length; i++) {
+      const r = responses[i];
       const key =
         r.survey && mongoose.Types.ObjectId.isValid(r.survey)
           ? String(r.survey)
@@ -1384,39 +1385,33 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
       if (!s) continue;
 
       const groupKey = String(s._id);
+      const targetGroup = grouped.get(groupKey);
+      if (!targetGroup) continue;
 
-      if (!grouped.has(groupKey)) {
-        grouped.set(groupKey, {
-          surveyId: s._id,
-          surveyCode: s.surveyCode,
-          name: s.name,
-          description: s.description,
-          status: s.status,
-          category: s.category,
-          projectName: s.projectName,
-          responses: [],
-        });
+      const rawAnswers = r.answers || [];
+      const answers = new Array(rawAnswers.length);
+      for (let j = 0; j < rawAnswers.length; j++) {
+        const a = rawAnswers[j];
+        if (!a) continue;
+        answers[j] = {
+          questionId: a.question,
+          questionText: a.questionText,
+          questionType: a.questionType,
+          answerText: a.answerText,
+          selectedOption: a.selectedOption,
+          selectedOptions: a.selectedOptions,
+          rating: a.rating,
+          otherText: a.otherText,
+        };
       }
 
-      const answers = (r.answers || []).filter(Boolean).map((a) => ({
-        questionId: a.question,
-        questionText: a.questionText,
-        questionType: a.questionType,
-        answerText: a.answerText,
-        selectedOption: a.selectedOption,
-        selectedOptions: a.selectedOptions,
-        rating: a.rating,
-        otherText: a.otherText,
-      }));
-
-      grouped.get(groupKey).responses.push({
+      targetGroup.responses.push({
         responseId: r._id,
         userCode: r.userCode,
         userName: r.userName,
         userMobile: r.userMobile,
         userRole: r.userRole,
         audioUrl: r.audioUrl,
-        // ✅ location per response
         latitude: r.latitude,
         longitude: r.longitude,
         isCompleted: r.isCompleted,
@@ -1428,11 +1423,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
       });
     }
 
-    const result = Array.from(grouped.values()).sort((a, b) => {
-      const lastA = a.responses[0]?.createdAt ? new Date(a.responses[0].createdAt).getTime() : 0;
-      const lastB = b.responses[0]?.createdAt ? new Date(b.responses[0].createdAt).getTime() : 0;
-      return lastB - lastA;
-    });
+    const result = Array.from(grouped.values()).filter((g) => g.responses.length > 0 || !surveyId);
 
     return res.json({ surveys: result });
   } catch (err) {
