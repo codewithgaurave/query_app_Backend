@@ -34,6 +34,9 @@ const punchInSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+punchInSchema.index({ createdAt: -1 });
+punchInSchema.index({ userCode: 1, createdAt: -1 });
+
 // Auto-save IST time
 punchInSchema.pre("save", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
