@@ -29,6 +29,8 @@ const allowedOrigins = [
   "https://query-admin-panel.onrender.com",
   "https://qc.o3consulting.in",
   "https://admin.o3consulting.in",
+  "https://subadmin.o3consulting.in",
+  "https://o3consulting.in",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
@@ -40,22 +42,36 @@ const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) return callback(null, true);
-    if (
+
+    const isAllowed =
       allowedOrigins.includes(origin) ||
-      origin.startsWith("http://localhost:") ||
-      origin.startsWith("http://127.0.0.1:")
-    ) {
+      /^https?:\/\/([a-zA-Z0-9-]+\.)*o3consulting\.in(:\d+)?$/.test(origin) ||
+      /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
+      /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+
+    if (isAllowed) {
       return callback(null, true);
     }
-    return callback(new Error("Not allowed by CORS"));
+    return callback(null, false);
   },
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "Cache-Control",
+    "Pragma",
+    "Expires"
+  ],
   credentials: true,
+  optionsSuccessStatus: 200,
 };
 
-// ✅ Simple CORS middleware (koi app.options() jugglery nahi)
+// ✅ CORS middleware + preflight OPTIONS handling
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 // 📜 Logs
 app.use(morgan("dev"));
