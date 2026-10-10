@@ -12,7 +12,7 @@ import {
   deleteUser,
   resetUserPasswordByAdmin,
 } from "../controllers/userController.js";
-import { requireAuth, requireSuperAdminOnly } from "../middleware/auth.js";
+import { requireAuth, requirePermission, requireSuperAdminOnly } from "../middleware/auth.js";
 import { uploadUserFields } from "../middleware/upload.js";
 
 const router = express.Router();
