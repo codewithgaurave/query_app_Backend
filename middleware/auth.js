@@ -50,7 +50,7 @@ export const requirePermission = (permissionKey) => {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      // SUPER_ADMIN has unrestricted access to all modules
+      // SUPER_ADMIN has unrestricted access to all modules and features
       if (req.user.role === "SUPER_ADMIN") {
         return next();
       }

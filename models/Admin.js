@@ -16,10 +16,10 @@ const adminSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     permissions: {
       dashboard: { type: Boolean, default: true },
-      surveys: { type: Boolean, default: false },
+      surveys: { type: Boolean, default: true },
       surveyResponses: { type: Boolean, default: true },
-      surveyCharts: { type: Boolean, default: false },
-      users: { type: Boolean, default: false },
+      surveyCharts: { type: Boolean, default: true },
+      users: { type: Boolean, default: true },
       punchins: { type: Boolean, default: false },
       pinnedQuestions: { type: Boolean, default: false },
     },

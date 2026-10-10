@@ -65,38 +65,38 @@ router.patch(
   publicSetSurveyResponseApproval
 );
 
-// ✅ Create survey (Super Admin Only)
-router.post("/create", requireAuth, requireSuperAdminOnly, createSurvey);
+// ✅ Create survey (Super Admin & Sub Admin with surveys permission)
+router.post("/create", requireAuth, requirePermission("surveys"), createSurvey);
 
-// ✅ Update survey (Super Admin Only)
+// ✅ Update survey (Super Admin & Sub Admin with surveys permission)
 router.put(
   "/:surveyIdOrCode",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("surveys"),
   updateSurvey
 );
 
-// ✅ Delete survey (Super Admin Only)
+// ✅ Delete survey (Super Admin & Sub Admin with surveys permission)
 router.delete(
   "/:surveyIdOrCode",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("surveys"),
   deleteSurvey
 );
 
-// ✅ Duplicate survey (Super Admin Only)
+// ✅ Duplicate survey (Super Admin & Sub Admin with surveys permission)
 router.post(
   "/:surveyIdOrCode/duplicate",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("surveys"),
   duplicateSurvey
 );
 
-// ✅ Upload party symbol image (Super Admin Only)
+// ✅ Upload party symbol image (Super Admin & Sub Admin with surveys permission)
 router.post(
   "/upload-symbol",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("surveys"),
   upload.single("image"),
   (req, res) => {
     try {
@@ -112,32 +112,32 @@ router.post(
   }
 );
 
-// ✅ Add question (Super Admin Only)
+// ✅ Add question (Super Admin & Sub Admin with surveys permission)
 router.post(
   "/:surveyIdOrCode/questions",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("surveys"),
   addSurveyQuestion
 );
 
-// ✅ Update question (Super Admin Only)
+// ✅ Update question (Super Admin & Sub Admin with surveys permission)
 router.put(
   "/questions/:questionId",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("surveys"),
   updateSurveyQuestion
 );
 
-// ✅ Delete question (Super Admin Only)
+// ✅ Delete question (Super Admin & Sub Admin with surveys permission)
 router.delete(
   "/questions/:questionId",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("surveys"),
   deleteSurveyQuestion
 );
 
-// ✅ List surveys (Super Admin Only)
-router.get("/list", requireAuth, requireSuperAdminOnly, listSurveys);
+// ✅ List surveys (Super Admin & Sub Admin with surveys permission)
+router.get("/list", requireAuth, requirePermission("surveys"), listSurveys);
 
 // ✅ NEW: Admin summary — sabhi surveys + response count + users
 router.get(

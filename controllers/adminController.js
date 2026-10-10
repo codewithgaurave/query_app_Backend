@@ -19,23 +19,19 @@ const ALL_PERMISSIONS = {
 
 const DEFAULT_SUBADMIN_PERMISSIONS = {
   dashboard: true,
-  surveys: false,       // Exclusive to Super Admin
+  surveys: true,
   surveyResponses: true,
-  surveyCharts: false,  // Exclusive to Super Admin
-  users: false,         // Exclusive to Super Admin
+  surveyCharts: true,
+  users: true,
   punchins: false,
   pinnedQuestions: false,
 };
 
-// Helper: Sanitize SubAdmin permissions to guarantee SuperAdmin-exclusive modules are NEVER granted
+// Helper: Sanitize SubAdmin permissions
 const sanitizeSubAdminPermissions = (perms = {}) => {
   return {
     ...DEFAULT_SUBADMIN_PERMISSIONS,
     ...perms,
-    // Strictly force Super Admin exclusive modules to false for any Sub Admin
-    surveys: false,
-    users: false,
-    surveyCharts: false,
   };
 };
 

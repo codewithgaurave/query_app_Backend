@@ -23,34 +23,34 @@ router.post("/login", loginUser);
 // ✅ PUBLIC - Only QUALITY_ENGINEER login route
 router.post("/login/quality-engineer", loginQualityEngineer);
 
-// SUPER ADMIN ONLY (with profile photo upload)
+// USER MANAGEMENT ROUTES (Super Admin & Sub Admin with 'users' permission)
 router.post(
   "/create",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("users"),
   uploadUserFields, // single('profilePhoto')
   createUserByAdmin
 );
 
-router.get("/list", requireAuth, requireSuperAdminOnly, listUsers);
+router.get("/list", requireAuth, requirePermission("users"), listUsers);
 
-router.get("/:id", requireAuth, requireSuperAdminOnly, getUserById);
+router.get("/:id", requireAuth, requirePermission("users"), getUserById);
 
-router.patch("/:id", requireAuth, requireSuperAdminOnly, updateUserByAdmin);
+router.patch("/:id", requireAuth, requirePermission("users"), updateUserByAdmin);
 
-// 🔐 Admin resets user password
+// 🔐 Reset user password
 router.patch(
   "/:id/reset-password",
   requireAuth,
-  requireSuperAdminOnly,
+  requirePermission("users"),
   resetUserPasswordByAdmin
 );
 
-router.patch("/:id/block", requireAuth, requireSuperAdminOnly, blockUser);
+router.patch("/:id/block", requireAuth, requirePermission("users"), blockUser);
 
-router.patch("/:id/unblock", requireAuth, requireSuperAdminOnly, unblockUser);
+router.patch("/:id/unblock", requireAuth, requirePermission("users"), unblockUser);
 
-router.delete("/:id", requireAuth, requireSuperAdminOnly, deleteUser);
+router.delete("/:id", requireAuth, requirePermission("users"), deleteUser);
 
 export default router;
 
