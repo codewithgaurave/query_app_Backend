@@ -505,6 +505,7 @@ export const addSurveyQuestion = async (req, res) => {
       // "Other" support
       enableOtherOption,
       otherOptionLabel,
+      isOtherRequired,
       // Follow-up mapping
       parentQuestionId,
       parentOptionValue,
@@ -623,6 +624,9 @@ export const addSurveyQuestion = async (req, res) => {
       if (typeof otherOptionLabel === "string" && otherOptionLabel.trim()) {
         doc.otherOptionLabel = otherOptionLabel.trim();
       }
+      if (typeof isOtherRequired === "boolean") {
+        doc.isOtherRequired = isOtherRequired;
+      }
     }
 
     // checkbox & mcq multiple handling
@@ -659,6 +663,7 @@ export const addSurveyQuestion = async (req, res) => {
       ratingStep: question.ratingStep,
       enableOtherOption: question.enableOtherOption || false,
       otherOptionLabel: question.otherOptionLabel || "Other",
+      isOtherRequired: question.isOtherRequired || false,
       createdAt: question.createdAt,
       updatedAt: question.updatedAt,
     };
@@ -699,6 +704,7 @@ export const updateSurveyQuestion = async (req, res) => {
       isActive,
       enableOtherOption,
       otherOptionLabel,
+      isOtherRequired,
       parentQuestionId,
       parentOptionValue,
     } = req.body;
@@ -842,10 +848,14 @@ export const updateSurveyQuestion = async (req, res) => {
         const trimmed = otherOptionLabel.trim();
         question.otherOptionLabel = trimmed || "Other";
       }
+      if (typeof isOtherRequired === "boolean") {
+        question.isOtherRequired = isOtherRequired;
+      }
     } else {
       // Non-option types (OPEN_ENDED / RATING etc)
       question.enableOtherOption = false;
       question.otherOptionLabel = undefined;
+      question.isOtherRequired = false;
       question.optionSymbols = [];
       if (!["OPEN_ENDED", "RATING"].includes(finalType)) {
         question.options = [];
@@ -898,6 +908,7 @@ export const updateSurveyQuestion = async (req, res) => {
       cleanQuestion.optionSymbols = question.optionSymbols || [];
       cleanQuestion.enableOtherOption = question.enableOtherOption;
       cleanQuestion.otherOptionLabel = question.otherOptionLabel;
+      cleanQuestion.isOtherRequired = question.isOtherRequired || false;
     }
 
     if (["MCQ_SINGLE", "CHECKBOX"].includes(question.type)) {
@@ -1169,6 +1180,7 @@ export const getSurveyWithQuestions = async (req, res) => {
         base.optionSymbols = q.optionSymbols || [];
         base.enableOtherOption = q.enableOtherOption;
         base.otherOptionLabel = q.otherOptionLabel;
+        base.isOtherRequired = q.isOtherRequired || false;
       }
 
       if (["MCQ_SINGLE", "CHECKBOX"].includes(q.type)) {

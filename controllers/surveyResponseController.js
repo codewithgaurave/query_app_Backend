@@ -26,6 +26,19 @@ const findSurveyByIdOrCode = async (surveyIdOrCode) => {
   return Survey.findOne({ surveyCode: surveyIdOrCode }).lean();
 };
 
+// Helper to convert date string (YYYY-MM-DD) to IST range in UTC
+const getISTDateRange = (dateStr) => {
+  if (!dateStr) return null;
+  const parts = String(dateStr).split("-").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return null;
+  const [year, month, day] = parts;
+  // IST offset is UTC+5:30 (5.5 * 3600 * 1000 ms)
+  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+  const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - IST_OFFSET);
+  const end = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - IST_OFFSET);
+  return { start, end };
+};
+
 /**
  * ✅ Helper: answers ko validate + normalize kare
  *  - parsedAnswers: FE se aaya array
@@ -58,6 +71,7 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
 
     // "Other" option related flags from question
     const hasOther = !!q.enableOtherOption;
+    const isOtherRequired = !!q.isOtherRequired;
     const otherLabel = (q.otherOptionLabel || "Other").trim();
     const isOtherValue = (val) => {
       if (!val || typeof val !== "string") return false;
@@ -201,14 +215,16 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
           }
 
           if (usedOther) {
-            if (!rawOtherText) {
+            if (isOtherRequired && !rawOtherText) {
               const err = new Error(
                 `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
               );
               err.status = 400;
               throw err;
             }
-            entry.otherText = rawOtherText;
+            if (rawOtherText) {
+              entry.otherText = rawOtherText;
+            }
           }
 
           entry.selectedOption = incomingOpts[0];
@@ -238,14 +254,16 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
         }
 
         if (isOtherSelected) {
-          if (!rawOtherText) {
+          if (isOtherRequired && !rawOtherText) {
             const err = new Error(
               `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
             );
             err.status = 400;
             throw err;
           }
-          entry.otherText = rawOtherText;
+          if (rawOtherText) {
+            entry.otherText = rawOtherText;
+          }
         }
 
         entry.selectedOptions = [entry.selectedOption];
@@ -317,14 +335,16 @@ const normalizeSurveyAnswers = (parsedAnswers, questionMap) => {
         }
 
         if (usedOther) {
-          if (!rawOtherText) {
+          if (isOtherRequired && !rawOtherText) {
             const err = new Error(
               `otherText is required when selecting "${otherLabel}" for question: ${q.questionText}`
             );
             err.status = 400;
             throw err;
           }
-          entry.otherText = rawOtherText;
+          if (rawOtherText) {
+            entry.otherText = rawOtherText;
+          }
         }
 
         entry.selectedOptions = opts;
@@ -646,6 +666,8 @@ export const listSurveyResponses = async (req, res) => {
     }
 
     const { surveyIdOrCode } = req.params;
+    const { startDate, endDate, date } = req.query;
+
     const survey = await findSurveyByIdOrCode(surveyIdOrCode);
     if (!survey) {
       return res.status(404).json({ message: "Survey not found" });
@@ -656,8 +678,24 @@ export const listSurveyResponses = async (req, res) => {
       return res.status(403).json({ message: "You do not have permission to view responses for this survey." });
     }
 
+    const responseFilter = { survey: survey._id };
+    if (date) {
+      const range = getISTDateRange(date);
+      if (range) responseFilter.createdAt = { $gte: range.start, $lte: range.end };
+    } else if (startDate || endDate) {
+      responseFilter.createdAt = {};
+      if (startDate) {
+        const startRange = getISTDateRange(startDate);
+        if (startRange) responseFilter.createdAt.$gte = startRange.start;
+      }
+      if (endDate) {
+        const endRange = getISTDateRange(endDate);
+        if (endRange) responseFilter.createdAt.$lte = endRange.end;
+      }
+    }
+
     const responses = await SurveyResponse.find(
-      { survey: survey._id },
+      responseFilter,
       {
         surveyCode: 1,
         userCode: 1,
@@ -907,15 +945,38 @@ export const adminSurveyResponseSummary = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
+    const { startDate, endDate, date, subAdminId } = req.query;
+
     // Role-based matching
     const pipeline = [];
+
+    const dateMatch = {};
+    if (date) {
+      const range = getISTDateRange(date);
+      if (range) dateMatch.createdAt = { $gte: range.start, $lte: range.end };
+    } else if (startDate || endDate) {
+      dateMatch.createdAt = {};
+      if (startDate) {
+        const startRange = getISTDateRange(startDate);
+        if (startRange) dateMatch.createdAt.$gte = startRange.start;
+      }
+      if (endDate) {
+        const endRange = getISTDateRange(endDate);
+        if (endRange) dateMatch.createdAt.$lte = endRange.end;
+      }
+    }
+
+    if (Object.keys(dateMatch).length > 0) {
+      pipeline.push({ $match: dateMatch });
+    }
 
     if (req.user?.role === "SUB_ADMIN") {
       const subAdminSurveys = await Survey.find({ createdByAdmin: adminId }).select("_id").lean();
       const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
       pipeline.push({ $match: { survey: { $in: subAdminSurveyIds } } });
-    } else if (req.user?.role === "SUPER_ADMIN" && req.query.subAdminId) {
-      const subAdminSurveys = await Survey.find({ createdByAdmin: req.query.subAdminId }).select("_id").lean();
+    } else if (req.user?.role === "SUPER_ADMIN" && (subAdminId || req.query.subAdminId)) {
+      const targetSubAdmin = subAdminId || req.query.subAdminId;
+      const subAdminSurveys = await Survey.find({ createdByAdmin: targetSubAdmin }).select("_id").lean();
       const subAdminSurveyIds = subAdminSurveys.map((s) => s._id);
       pipeline.push({ $match: { survey: { $in: subAdminSurveyIds } } });
     }
@@ -1077,21 +1138,6 @@ export const approveSurveyResponse = async (req, res) => {
     console.error("approveSurveyResponse error:", err);
     return res.status(500).json({ message: "Server error" });
   }
-};
-
-
-
-// Helper to convert date string (YYYY-MM-DD) to IST range in UTC
-const getISTDateRange = (dateStr) => {
-  if (!dateStr) return null;
-  const parts = String(dateStr).split("-").map(Number);
-  if (parts.length !== 3 || parts.some(isNaN)) return null;
-  const [year, month, day] = parts;
-  // IST offset is UTC+5:30 (5.5 * 3600 * 1000 ms)
-  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
-  const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - IST_OFFSET);
-  const end = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - IST_OFFSET);
-  return { start, end };
 };
 
 /**

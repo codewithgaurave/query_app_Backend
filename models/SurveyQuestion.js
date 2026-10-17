@@ -62,6 +62,10 @@ const surveyQuestionSchema = new mongoose.Schema(
       trim: true,
       default: "Other",
     },
+    isOtherRequired: {
+      type: Boolean,
+      default: false,
+    },
 
     // Rating config
     minRating: {
