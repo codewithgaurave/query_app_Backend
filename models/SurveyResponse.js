@@ -75,6 +75,11 @@ const surveyResponseSchema = new mongoose.Schema(
       index: true,
     },
 
+    remark: {
+      type: String,
+      default: "",
+    },
+
     isApproved: {
       type: Boolean,
       default: false,

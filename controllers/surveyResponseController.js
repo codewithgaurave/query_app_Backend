@@ -707,6 +707,7 @@ export const listSurveyResponses = async (req, res) => {
         isCompleted: 1,
         isApproved: 1,
         approvalStatus: 1,
+        remark: 1,
         approvedBy: 1,
         createdAt: 1,
         createdAtIST: 1,
@@ -1071,40 +1072,49 @@ export const approveSurveyResponse = async (req, res) => {
     }
 
     const { responseId } = req.params;
-    const { approvalStatus } = req.body;
+    const { approvalStatus, remark } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(responseId)) {
       return res.status(400).json({ message: "Invalid responseId." });
     }
 
-    if (!approvalStatus) {
+    if (!approvalStatus && remark === undefined) {
       return res
         .status(400)
-        .json({ message: "approvalStatus is required." });
+        .json({ message: "approvalStatus or remark is required." });
     }
 
-    const allowedStatuses = Object.values(APPROVAL_STATUS).filter(
-      (s) => s !== APPROVAL_STATUS.PENDING // QE se usually final status
-    );
+    const update = {};
 
-    if (!allowedStatuses.includes(approvalStatus)) {
-      return res.status(400).json({
-        message: `approvalStatus must be one of: ${allowedStatuses.join(
-          ", "
-        )}`,
-      });
+    if (approvalStatus) {
+      const allowedStatuses = Object.values(APPROVAL_STATUS);
+      if (!allowedStatuses.includes(approvalStatus)) {
+        return res.status(400).json({
+          message: `approvalStatus must be one of: ${allowedStatuses.join(
+            ", "
+          )}`,
+        });
+      }
+
+      const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+      update.approvalStatus = approvalStatus;
+      update.isApproved = isApproved;
+      update.approvedBy = isApproved ? userJwt.sub : null;
+      if (isApproved) {
+        update.approvedAt = new Date();
+      } else if (approvalStatus === APPROVAL_STATUS.PENDING) {
+        update.approvedAt = null;
+        update.approvedBy = null;
+      }
     }
 
-    const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+    if (remark !== undefined) {
+      update.remark = typeof remark === "string" ? remark.trim() : String(remark);
+    }
 
     const updated = await SurveyResponse.findByIdAndUpdate(
       responseId,
-      {
-        approvalStatus,
-        isApproved,
-        approvedBy: isApproved ? userJwt.sub : null,
-        // approvedAt + updatedAtIST hook handle karega
-      },
+      update,
       {
         new: true,
         projection: {
@@ -1116,6 +1126,7 @@ export const approveSurveyResponse = async (req, res) => {
           isCompleted: 1,
           isApproved: 1,
           approvalStatus: 1,
+          remark: 1,
           approvedBy: 1,
           approvedAt: 1,     // ⭐ kab approve hua
           createdAt: 1,
@@ -1131,7 +1142,7 @@ export const approveSurveyResponse = async (req, res) => {
     }
 
     return res.json({
-      message: "Response approvalStatus updated successfully",
+      message: "Response updated successfully",
       response: updated,
     });
   } catch (err) {
@@ -1207,6 +1218,7 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
         isCompleted: 1,
         isApproved: 1,
         approvalStatus: 1,
+        remark: 1,
         approvedBy: 1,
         createdAt: 1,
         latitude: 1,
@@ -1249,6 +1261,7 @@ export const getAssignedSurveyResponsesForQC = async (req, res) => {
         isCompleted: r.isCompleted,
         isApproved: r.isApproved,
         approvalStatus: r.approvalStatus,
+        remark: r.remark || "",
         approvedBy: r.approvedBy,
         createdAt: r.createdAt,
       });
@@ -1279,6 +1292,7 @@ export const getQCResponseDetail = async (req, res) => {
       latitude: 1,
       longitude: 1,
       approvalStatus: 1,
+      remark: 1,
       isApproved: 1,
       userName: 1,
       userCode: 1,
@@ -1448,6 +1462,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         isCompleted: 1,
         isApproved: 1,
         approvalStatus: 1,
+        remark: 1,
         approvedBy: 1,
         createdAt: 1,
         latitude: 1,
@@ -1503,6 +1518,7 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
         isCompleted: r.isCompleted,
         isApproved: r.isApproved,
         approvalStatus: r.approvalStatus,
+        remark: r.remark || "",
         approvedBy: r.approvedBy,
         createdAt: r.createdAt,
         answers,
@@ -1526,45 +1542,45 @@ export const publicSurveyResponsesWithApproval = async (req, res) => {
 export const publicSetSurveyResponseApproval = async (req, res) => {
   try {
     const { responseId } = req.params;
-    const { approvalStatus } = req.body;
+    const { approvalStatus, remark } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(responseId)) {
       return res.status(400).json({ message: "Invalid responseId." });
     }
 
-    if (!approvalStatus) {
+    if (!approvalStatus && remark === undefined) {
       return res
         .status(400)
-        .json({ message: "approvalStatus is required." });
+        .json({ message: "approvalStatus or remark is required." });
     }
 
-    const allowedStatuses = Object.values(APPROVAL_STATUS);
+    const update = {};
 
-    if (!allowedStatuses.includes(approvalStatus)) {
-      return res.status(400).json({
-        message: `approvalStatus must be one of: ${allowedStatuses.join(
-          ", "
-        )}`,
-      });
+    if (approvalStatus) {
+      const allowedStatuses = Object.values(APPROVAL_STATUS);
+      if (!allowedStatuses.includes(approvalStatus)) {
+        return res.status(400).json({
+          message: `approvalStatus must be one of: ${allowedStatuses.join(
+            ", "
+          )}`,
+        });
+      }
+
+      const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
+      const approverId = req.user?.sub || null;
+      update.approvalStatus = approvalStatus;
+      update.isApproved = isApproved;
+      if (isApproved) {
+        update.approvedBy = approverId;
+        update.approvedAt = new Date();
+      } else {
+        update.approvedBy = null;
+        update.approvedAt = null;
+      }
     }
 
-    const isApproved = approvalStatus === APPROVAL_STATUS.CORRECTLY_DONE;
-
-    // Agar kabhi auth laga doge to ye use ho jayega, abhi mostly null rahega
-    const approverId = req.user?.sub || null;
-
-    const update = {
-      approvalStatus,
-      isApproved,
-    };
-
-    if (isApproved) {
-      update.approvedBy = approverId;
-      // approvedAt ko chaaho to yahi set karo ya hook pe chhod do
-      update.approvedAt = new Date();
-    } else {
-      update.approvedBy = null;
-      update.approvedAt = null;
+    if (remark !== undefined) {
+      update.remark = typeof remark === "string" ? remark.trim() : String(remark);
     }
 
     const updated = await SurveyResponse.findByIdAndUpdate(
@@ -1581,6 +1597,7 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
           isCompleted: 1,
           isApproved: 1,
           approvalStatus: 1,
+          remark: 1,
           approvedBy: 1,
           approvedAt: 1,
           createdAt: 1,
@@ -1596,7 +1613,7 @@ export const publicSetSurveyResponseApproval = async (req, res) => {
     }
 
     return res.json({
-      message: `Response status set to ${approvalStatus}`,
+      message: `Response updated successfully`,
       response: updated,
     });
   } catch (err) {
